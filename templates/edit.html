@@ -1,0 +1,23 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h4>Edit Payment — House {{rec.house_number}}</h4>
+<form method="post">
+  <div class="form-group">
+    <label>Month</label>
+    <select name="month" class="form-control">
+      {% for key,label in months %}
+        <option value="{{key}}" {% if key==rec.month %}selected{% endif %}>{{label}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Date Paid</label>
+    <input type="date" name="date_paid" class="form-control" value="{{rec.date_paid if rec.date_paid else ''}}">
+  </div>
+  <div class="form-group">
+    <label>Amount</label>
+    <input type="number" step="1" min="0" name="amount" class="form-control" value="{{rec.amount if rec.amount is not none else ''}}">
+  </div>
+  <button class="btn btn-primary">Save</button>
+</form>
+{% endblock %}

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!-- viewport ensures proper scaling on mobile -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Maintenance Tracker</title>
+
+    <!-- Local Bootstrap CSS -->
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <!-- Optional local custom CSS -->
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+
+    <style>
+      /* Make month tabs horizontally scrollable on small screens */
+      #monthTabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+      }
+      #monthTabs .nav-item {
+        display: inline-block;
+        float: none;
+      }
+      /* Reduce padding and font-size for tables on small screens */
+      @media (max-width: 575.98px) {
+        .table {
+          font-size: 0.9rem;
+        }
+        .small-action-btn {
+          display: block;
+          width: 100%;
+          margin-bottom: 6px;
+        }
+        .header-right {
+          width: auto;
+        }
+      }
+      /* Ensure the header items wrap nicely on small screens */
+      .header-row {
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      /* Slight visual improvement for totals row */
+      tfoot th, tfoot td {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3 header-row">
+        <div class="d-flex align-items-center">
+          <h3 class="mb-0 mr-3">Maintenance Tracker</h3>
+          <!-- small description only visible on md+ -->
+          <small class="text-muted d-none d-md-inline">Monthly payments overview</small>
+        </div>
+
+        <div class="d-flex align-items-center header-right">
+          {% if session.get('admin') %}
+            <span class="mr-2 d-none d-sm-inline">Signed in as <strong>admin</strong></span>
+            <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary ml-1">Logout</a>
+          {% else %}
+            <a href="{{ url_for('login') }}" class="btn btn-sm btn-primary">Admin Sign in</a>
+          {% endif %}
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-info">{{ messages[0] }}</div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+
+    <!-- Local jQuery + Bootstrap bundle (bootstrap.bundle includes Popper) -->
+    <script src="{{ url_for('static', filename='js/jquery-3.5.1.slim.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+
+    <script>
+    // Manual tab switching (works even if bootstrap JS isn't initializing)
+    document.addEventListener('DOMContentLoaded', function(){
+      var triggers = document.querySelectorAll('#monthTabs a');
+      triggers.forEach(function(trigger){
+        trigger.addEventListener('click', function(e){
+          e.preventDefault();
+          var targetSelector = this.getAttribute('href') || this.dataset.target;
+          if(!targetSelector) return;
+          var target = document.querySelector(targetSelector);
+          if(!target) return;
+
+          // deactivate all tabs and panes
+          document.querySelectorAll('#monthTabs a').forEach(function(a){
+            a.classList.remove('active');
+            a.setAttribute('aria-selected','false');
+          });
+          document.querySelectorAll('.tab-pane').forEach(function(p){
+            p.classList.remove('show','active');
+          });
+
+          // activate selected
+          this.classList.add('active');
+          this.setAttribute('aria-selected','true');
+          target.classList.add('show','active');
+
+          // for mobile, scroll the active tab into view and then the content
+          if(window.innerWidth < 768){
+            // scroll tab into view
+            var tabParent = document.getElementById('monthTabs');
+            if(tabParent && this.offsetLeft !== undefined){
+              tabParent.scrollLeft = this.offsetLeft - 12;
+            }
+            // scroll to content
+            setTimeout(function(){
+              target.scrollIntoView({behavior:'smooth', block:'start'});
+            }, 200);
+          }
+        });
+      });
+
+      // If there's a hash in the URL, try to activate that tab on load
+      if(location.hash){
+        var link = document.querySelector('#monthTabs a[href="' + location.hash + '"]');
+        if(link){
+          link.click();
+        }
+      }
+    });
+    </script>
+  </body>
+</html>
