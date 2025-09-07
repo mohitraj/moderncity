@@ -188,4 +188,4 @@ def export_year(year):
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         print("Database not found. Run 'python init_db.py' to create it.")
-    app.run(debug=True,host="0.0.0.0")
+    app.run()
