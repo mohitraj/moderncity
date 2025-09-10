@@ -1,0 +1,81 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Add Expenditure</h5>
+    <form method="post" class="form-inline">
+      <div class="form-group mr-2">
+        <label class="mr-1">Month</label>
+        <select name="month" class="form-control form-control-sm">
+          {% for key,label in months %}
+            <option value="{{key}}">{{label}}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mr-2">
+        <input type="date" name="date" class="form-control form-control-sm" value="{{ (None) }}">
+      </div>
+      <div class="form-group mr-2">
+        <input name="amount" class="form-control form-control-sm" placeholder="Amount" required>
+      </div>
+      <div class="form-group mr-2">
+        <select name="type" id="expType" class="form-control form-control-sm">
+          <option value="Water Bill">Water Bill</option>
+          <option value="Electricity Bill">Electricity Bill</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="form-group mr-2" id="reasonWrap" style="display:none;">
+        <input name="reason" id="reason" class="form-control form-control-sm" placeholder="Reason (optional)">
+      </div>
+      <button class="btn btn-sm btn-primary">Add</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Expenditure History</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr><th>Month</th><th>Date</th><th>Amount</th><th>Type</th><th>Reason</th><th>By</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for e in expenditures %}
+          <tr>
+            <td>{{ e.month }}</td>
+            <td>{{ e.date if e.date else '-' }}</td>
+            <td>{{ e.amount }}</td>
+            <td>{{ e.type }}</td>
+            <td>{{ e.reason if e.reason else '-' }}</td>
+            <td>{{ e.created_by }}</td>
+            <td><a href="{{ url_for('delete_expenditure', exp_id=e.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete expenditure?')">Delete</a></td>
+          </tr>
+          {% endfor %}
+          {% if expenditures|length == 0 %}
+          <tr><td colspan="7" class="text-center text-muted">No expenditures recorded.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  var typeEl = document.getElementById('expType');
+  var reasonWrap = document.getElementById('reasonWrap');
+  function toggleReason(){
+    if(typeEl.value === 'Other'){
+      reasonWrap.style.display = 'inline-block';
+    } else {
+      reasonWrap.style.display = 'none';
+      document.getElementById('reason').value = '';
+    }
+  }
+  typeEl.addEventListener('change', toggleReason);
+  toggleReason();
+});
+</script>
+{% endblock %}

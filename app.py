@@ -38,28 +38,39 @@ def admin_required():
 
 @app.route('/')
 def index():
-    db = get_db()
-    records = {}
-    totals = {}
-    
-    # Create a mapping of display keys to database keys
-    month_mapping = {}
-    for display_key, db_key, label in MONTHS:
-        month_mapping[display_key] = db_key
-        
-        # Use database key for SQL queries
-        cur = db.execute('SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,))
-        rows = cur.fetchall()
-        records[display_key] = rows  # Store with display key
-        
-        # compute total for this month (treat NULL as 0)
-        tot_cur = db.execute('SELECT SUM(amount) as s FROM records WHERE month = ? AND amount IS NOT NULL', (db_key,))
-        s = tot_cur.fetchone()['s']
-        totals[display_key] = int(s) if s is not None else 0
-    
-    # Pass the month mapping to template for form submissions
-    return render_template('index.html', months=[(k, label) for k, _, label in MONTHS], 
-                         records=records, totals=totals, month_mapping=month_mapping)
+    try:
+        db = get_db()
+        records = {}
+        totals = {}
+        expenditures_total = {}
+        month_mapping = {}
+
+        for display_key, db_key, label in MONTHS:
+            month_mapping[display_key] = db_key
+            cur = db.execute('SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,))
+            rows = cur.fetchall()
+            records[display_key] = rows
+
+            tot_cur = db.execute('SELECT SUM(amount) as s FROM records WHERE month = ? AND amount IS NOT NULL', (db_key,))
+            payments_sum = tot_cur.fetchone()['s'] or 0
+
+            exp_cur = db.execute('SELECT SUM(amount) as s FROM expenditures WHERE month = ?', (db_key,))
+            exp_sum = exp_cur.fetchone()['s'] or 0
+            expenditures_total[display_key] = int(exp_sum)
+
+            totals[display_key] = int(payments_sum) - int(exp_sum)
+
+        return render_template('index.html',
+                               months=[(k, label) for k, _, label in MONTHS],
+                               records=records,
+                               totals=totals,
+                               expenditures_total=expenditures_total,
+                               month_mapping=month_mapping)
+    except Exception as e:
+        # Show error on page so you can see what's failing
+        import traceback
+        tb = traceback.format_exc()
+        return f"<h3>Index rendering failed — server error</h3><pre>{tb}</pre>", 500
 
 @app.route('/login', methods=['GET','POST'])
 def login():
