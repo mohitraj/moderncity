@@ -10,12 +10,14 @@
       <div class="form-group mr-2">
         <input name="password" type="password" class="form-control form-control-sm" placeholder="password" required>
       </div>
-      <div class="form-group mr-2">
-        <select name="role" class="form-control form-control-sm">
-          <option value="editor" selected>Editor (can edit records & add expenditures)</option>
-          <option value="admin">Admin</option>
-        </select>
-      </div>
+     <div class="form-group mr-2">
+  <select name="role" class="form-control form-control-sm">
+    {% for value, label in roles %}
+      <option value="{{ value }}">{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>
+
       <button class="btn btn-sm btn-primary">Create User</button>
     </form>
   </div>
