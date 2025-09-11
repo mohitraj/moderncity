@@ -1,8 +1,7 @@
-# app.py (amended with decorator-based permissions)
+# app.py (full)
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, Response
 import sqlite3, os, io, csv
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
 from functools import wraps
 
 APP_SECRET = 'change_this_secret'
@@ -20,6 +19,13 @@ MONTHS = [
 ]
 
 TOTAL_HOUSES = 60
+
+# Roles driven from here and passed to admin template
+ROLES = [
+    ('admin', 'Admin (full access, can manage users)'),
+    ('maintenance', 'Maintenance (can add maintenance records only)'),
+    ('expenditure', 'Expenditure (can add expenditure records only)')
+]
 
 app = Flask(__name__, template_folder='templates')
 app.secret_key = APP_SECRET
@@ -42,7 +48,6 @@ def close_connection(exception):
 # ---------------------------
 def is_builtin_admin():
     """Return True if session indicates builtin admin signed in."""
-    # builtin admin sets role 'admin' and username ADMIN_USER in login
     return session.get('username') == ADMIN_USER and session.get('role') == 'admin'
 
 def require_roles(*allowed_roles):
@@ -54,7 +59,7 @@ def require_roles(*allowed_roles):
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
-            # If builtin admin is logged in, allow
+            # builtin admin always allowed
             if is_builtin_admin():
                 return f(*args, **kwargs)
 
@@ -62,7 +67,6 @@ def require_roles(*allowed_roles):
             if role in allowed_roles:
                 return f(*args, **kwargs)
 
-            # not allowed
             flash('You do not have permission to access that page. Please log in with an account that has the necessary role.')
             return redirect(url_for('login'))
         return wrapped
@@ -70,8 +74,7 @@ def require_roles(*allowed_roles):
 
 def only_admin_required():
     """
-    Return True if current user is builtin admin or user role 'admin'.
-    Keep as function for places where you prefer inline check.
+    Inline check used in admin panel routes (return True/False).
     """
     if is_builtin_admin():
         return True
@@ -87,12 +90,10 @@ def index():
     totals = {}
     expenditures_total = {}
 
-    # Create a mapping of display keys to database keys
     month_mapping = {}
     for display_key, db_key, label in MONTHS:
         month_mapping[display_key] = db_key
 
-        # fetch payments sum
         cur = db.execute('SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,))
         rows = cur.fetchall()
         records[display_key] = rows
@@ -100,12 +101,10 @@ def index():
         tot_cur = db.execute('SELECT SUM(amount) as s FROM records WHERE month = ? AND amount IS NOT NULL', (db_key,))
         payments_sum = tot_cur.fetchone()['s'] or 0
 
-        # fetch expenditures sum for this month
         exp_cur = db.execute('SELECT SUM(amount) as s FROM expenditures WHERE month = ?', (db_key,))
         exp_sum = exp_cur.fetchone()['s'] or 0
         expenditures_total[display_key] = int(exp_sum)
 
-        # Net total = payments - expenditures
         totals[display_key] = int(payments_sum) - int(exp_sum)
 
     return render_template('index.html',
@@ -133,8 +132,7 @@ def login():
         cur = db.execute('SELECT * FROM users WHERE username = ?', (u,))
         user = cur.fetchone()
         if user and check_password_hash(user['password_hash'], p):
-            # use the role stored in DB; default to 'editor' if null
-            session['role'] = user['role'] or 'editor'
+            session['role'] = user['role'] or 'admin'
             session['username'] = user['username']
             flash(f"Signed in as {user['username']}")
             return redirect(url_for('index'))
@@ -152,8 +150,8 @@ def logout():
 
 # ----------------------
 # Maintenance (payments) routes
-# - /add is allowed for 'admin' and 'maintenance'
-# - edit/delete remain admin-only (as potentially destructive)
+# - /add: allowed for 'admin' and 'maintenance'
+# - edit/delete: admin-only
 # ----------------------
 @app.route('/add', methods=['GET','POST'])
 @require_roles('admin', 'maintenance')
@@ -182,7 +180,7 @@ def add():
     return render_template('add.html', total_houses=TOTAL_HOUSES, months=month_options)
 
 @app.route('/edit/<int:rec_id>', methods=['GET','POST'])
-@require_roles('admin')  # only admin can edit existing rows
+@require_roles('admin')
 def edit(rec_id):
     db = get_db()
     cur = db.execute('SELECT * FROM records WHERE id = ?', (rec_id,))
@@ -207,7 +205,7 @@ def edit(rec_id):
     return render_template('edit.html', rec=rec, months=month_options)
 
 @app.route('/delete/<int:rec_id>')
-@require_roles('admin')  # only admin can clear records
+@require_roles('admin')
 def delete(rec_id):
     db = get_db()
     db.execute('UPDATE records SET date_paid = NULL, amount = NULL WHERE id = ?', (rec_id,))
@@ -216,7 +214,7 @@ def delete(rec_id):
     return redirect(url_for('index'))
 
 # ----------------------
-# Export routes (read-only) - available to any signed in user / or public
+# Export routes
 # ----------------------
 @app.route('/export/<month_key>')
 def export_month(month_key):
@@ -239,7 +237,7 @@ def export_month(month_key):
         cw.writerow([r['house_number'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
     output = si.getvalue()
     filename = f"payments_{db_key}.csv"
-    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 @app.route('/export_year/<year>')
 def export_year(year):
@@ -253,15 +251,14 @@ def export_year(year):
         cw.writerow([r['house_number'], r['month'], r['date_paid'] if r['date_paid'] else '', r['amount'] if r['amount'] is not None else ''])
     output = si.getvalue()
     filename = f"payments_{year}.csv"
-    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 # ----------------------
 # Admin panel (create users)
-# Only builtin admin or users with role 'admin' can access
+# Only builtin admin or users with role 'admin' can access/create/delete users
 # ----------------------
 @app.route('/admin', methods=['GET','POST'])
 def admin_panel():
-    # only builtin admin or user with role 'admin' can create accounts
     if not only_admin_required():
         flash('Admin access required')
         return redirect(url_for('login'))
@@ -269,7 +266,7 @@ def admin_panel():
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
         password = request.form.get('password')
-        role = request.form.get('role') or 'editor'
+        role = request.form.get('role') or 'admin'
         if not username or not password:
             flash('Username and password required')
             return redirect(url_for('admin_panel'))
@@ -281,14 +278,10 @@ def admin_panel():
         except sqlite3.IntegrityError:
             flash('Username already exists')
         return redirect(url_for('admin_panel'))
-    ROLES = [
-    ('admin', 'Admin (full access, can manage users)'),
-    ('maintenance', 'Maintenance (can add maintenance records only)'),
-    ('expenditure', 'Expenditure (can add expenditure records only)')
-]
 
     users = db.execute('SELECT id, username, role FROM users ORDER BY username').fetchall()
-    return render_template('admin.html', users=users,roles=ROLES)
+    # pass ROLES so template can render the dropdown
+    return render_template('admin.html', users=users, roles=ROLES)
 
 @app.route('/admin/delete_user/<int:user_id>')
 def delete_user(user_id):
@@ -303,14 +296,20 @@ def delete_user(user_id):
 
 # ----------------------
 # Expenditure routes
-# - allowed for 'admin' and 'expenditure'
-# - deleting expenditure left admin-only
+# - Viewable by anyone
+# - Only admin or expenditure role (or builtin admin) can POST (add)
+# - Deleting is admin-only
 # ----------------------
 @app.route('/expenditure', methods=['GET','POST'])
-@require_roles('admin', 'expenditure')
 def expenditure():
     db = get_db()
+
+    # POST (create) -> restrict to admin/expenditure
     if request.method == 'POST':
+        if not (is_builtin_admin() or session.get('role') in ('admin', 'expenditure')):
+            flash('You do not have permission to add expenditures. Please log in with an account that has the necessary role.')
+            return redirect(url_for('login'))
+
         month = request.form.get('month')  # database key like '2025-08'
         date = request.form.get('date') or None
         amount = request.form.get('amount') or '0'
@@ -329,13 +328,13 @@ def expenditure():
         flash('Expenditure recorded')
         return redirect(url_for('expenditure'))
 
-    # list expenditures and provide form
+    # GET -> everyone can view the list
     exp_rows = db.execute('SELECT * FROM expenditures ORDER BY month DESC, date DESC').fetchall()
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
     return render_template('expenditure.html', expenditures=exp_rows, months=month_options)
 
 @app.route('/expenditure/delete/<int:exp_id>')
-@require_roles('admin')  # only admin can delete expenditures
+@require_roles('admin')
 def delete_expenditure(exp_id):
     db = get_db()
     db.execute('DELETE FROM expenditures WHERE id = ?', (exp_id,))
@@ -349,5 +348,4 @@ def delete_expenditure(exp_id):
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         print("Database not found. Run 'python init_db.py' to create it.")
-    # debug True for dev only
     app.run(host="0.0.0.0", debug=True)
