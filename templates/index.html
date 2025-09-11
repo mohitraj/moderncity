@@ -84,7 +84,8 @@
                 <th class="text-right">Expenditure Total</th>
                 <th>{{ expenditures_total[key] if expenditures_total is defined else '-' }}</th>
               {% else %}
-                <th colspan="1"></th>
+                <th class="text-right">Expenditure Total</th>
+                <th>{{ expenditures_total[key] if expenditures_total is defined else '-' }}</th>
               {% endif %}
             </tr>
             <tr>
