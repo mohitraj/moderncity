@@ -3,9 +3,7 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0">Expenditures</h4>
-  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
-    ← Back to Home
-  </a>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
 </div>
 
 <div class="card mb-3">
@@ -17,37 +15,133 @@
   </div>
 </div>
 
-{# Show add form only if authorized #}
+{# Filter row: GET form to select month and a download button #}
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <label class="mr-2">Filter by month:</label>
+      <div class="form-group mr-2">
+        <select name="month" class="form-control form-control-sm">
+          <option value="">All months</option>
+          {% for value, label in months %}
+            <option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-sm btn-outline-primary mr-2">Apply</button>
+
+      {# Download CSV button respects the currently selected month #}
+      <a id="downloadCsvBtn"
+         href="{{ url_for('export_expenditures') }}{% if selected_month %}?month={{ selected_month }}{% endif %}"
+         class="btn btn-sm btn-secondary"
+         title="Download CSV of shown data">
+        Download CSV
+      </a>
+    </form>
+  </div>
+</div>
+
+{# Add form - visible only to authorized users #}
 {% if session.username == 'admin' or session.role == 'admin' or session.role == 'expenditure' %}
 <div class="card mb-3">
   <div class="card-body">
-    <form method="post" class="form-row">
+    <form method="post" class="form-row" id="addExpenditureForm">
       <div class="form-group col-md-3">
         <label class="sr-only">Month</label>
-        <select name="month" class="form-control form-control-sm">
+        <select name="month" class="form-control form-control-sm" required>
           {% for value, label in months %}
             <option value="{{ value }}">{{ label }}</option>
           {% endfor %}
         </select>
       </div>
+
       <div class="form-group col-md-2">
-        <input name="date" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
+        <!-- Date picker -->
+        <label class="sr-only">Date</label>
+        <input name="date" type="date" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
       </div>
+
       <div class="form-group col-md-2">
-        <input name="amount" class="form-control form-control-sm" placeholder="Amount" required>
+        <label class="sr-only">Amount</label>
+        <input name="amount" type="number" min="0" step="1" class="form-control form-control-sm" placeholder="Amount" required>
       </div>
+
       <div class="form-group col-md-3">
-        <input name="type" class="form-control form-control-sm" placeholder="Type (e.g., Repair)">
+        <label class="sr-only">Type</label>
+        <select name="type" id="expTypeSelect" class="form-control form-control-sm">
+          <option value="Water Bill">Water Bill</option>
+          <option value="Electricity Bill">Electricity Bill</option>
+          <option value="Safaiwala">Safaiwala</option>
+          <option value="Other">Other (type below)</option>
+        </select>
       </div>
+
+      <div class="form-group col-md-12 mt-2" id="otherTypeWrapper" style="display:none;">
+        <input name="type_other" id="typeOtherInput" class="form-control form-control-sm" placeholder="Specify other type (e.g., Tools, Materials)">
+        <small class="text-muted">If you selected "Other", enter the custom type here. Otherwise leave blank.</small>
+      </div>
+
       <div class="form-group col-md-12 mt-2">
         <input name="reason" class="form-control form-control-sm" placeholder="Reason / Notes">
       </div>
+
       <div class="form-group col-md-12 text-right mt-2">
         <button class="btn btn-sm btn-primary">Add Expenditure</button>
       </div>
     </form>
   </div>
 </div>
+
+<script>
+  // Toggle the "Other" input when user selects Other
+  document.addEventListener('DOMContentLoaded', function() {
+    var typeSelect = document.getElementById('expTypeSelect');
+    var otherWrapper = document.getElementById('otherTypeWrapper');
+    var otherInput = document.getElementById('typeOtherInput');
+    var addForm = document.getElementById('addExpenditureForm');
+
+    function toggleOther() {
+      if(!typeSelect) return;
+      if (typeSelect.value === 'Other') {
+        otherWrapper.style.display = 'block';
+        otherInput.required = true;
+      } else {
+        otherWrapper.style.display = 'none';
+        otherInput.required = false;
+        otherInput.value = '';
+      }
+    }
+
+    // Initialize visibility
+    toggleOther();
+
+    if (typeSelect) {
+      typeSelect.addEventListener('change', toggleOther);
+    }
+
+    // On submit, if Other is used, set the value of a hidden field 'type' to the typed value
+    addForm.addEventListener('submit', function(e){
+      // make sure 'type' parameter sent to server has custom value if Other chosen
+      if (typeSelect.value === 'Other') {
+        // create/replace a hidden input named 'type' with otherInput's value
+        var existing = document.querySelector('input[name="type"][type="hidden"]');
+        if (existing) existing.parentNode.removeChild(existing);
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'type';
+        hidden.value = otherInput.value || 'Other';
+        addForm.appendChild(hidden);
+        // also remove the select's name so it doesn't override (optional)
+        typeSelect.removeAttribute('name');
+      }
+      // If not Other, ensure select has name 'type' (in case it was removed previously)
+      else {
+        if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name','type');
+      }
+    });
+  });
+</script>
+
 {% else %}
 <div class="alert alert-info">
   You can view expenditures here. To add expenditures, sign in with an account that has the 
@@ -55,9 +149,10 @@
 </div>
 {% endif %}
 
+{# Records table #}
 <div class="card">
   <div class="card-body">
-    <h5 class="card-title">Expenditure Records</h5>
+    <h5 class="card-title">Expenditure Records {% if selected_month %} — {{ selected_month }}{% endif %}</h5>
     <table class="table table-sm table-striped table-bordered">
       <thead>
         <tr>
@@ -89,10 +184,32 @@
             {% endif %}
           </td>
         </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted">No expenditures found.</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+<!-- small script to make Download CSV link reflect selected month immediately (optional UX improvement) -->
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  var monthSelect = document.querySelector('form.form-inline select[name="month"]');
+  var downloadBtn = document.getElementById('downloadCsvBtn');
+  if(monthSelect && downloadBtn){
+    monthSelect.addEventListener('change', function(){
+      var base = "{{ url_for('export_expenditures') }}";
+      if(this.value){
+        downloadBtn.href = base + '?month=' + encodeURIComponent(this.value);
+      } else {
+        downloadBtn.href = base;
+      }
+    });
+  }
+});
+</script>
 
 {% endblock %}

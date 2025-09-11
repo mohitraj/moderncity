@@ -300,6 +300,7 @@ def delete_user(user_id):
 # - Only admin or expenditure role (or builtin admin) can POST (add)
 # - Deleting is admin-only
 # ----------------------
+# ---------- Expenditure routes (updated) ----------
 @app.route('/expenditure', methods=['GET','POST'])
 def expenditure():
     db = get_db()
@@ -328,10 +329,51 @@ def expenditure():
         flash('Expenditure recorded')
         return redirect(url_for('expenditure'))
 
-    # GET -> everyone can view the list
-    exp_rows = db.execute('SELECT * FROM expenditures ORDER BY month DESC, date DESC').fetchall()
+    # GET -> support optional month filter via query param ?month=YYYY-MM
+    selected_month = request.args.get('month')  # e.g. '2025-08' or None for all
+    if selected_month:
+        cur = db.execute('SELECT * FROM expenditures WHERE month = ? ORDER BY date DESC, id DESC', (selected_month,))
+    else:
+        cur = db.execute('SELECT * FROM expenditures ORDER BY month DESC, date DESC, id DESC')
+    exp_rows = cur.fetchall()
+
+    # month options for filter / form
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
-    return render_template('expenditure.html', expenditures=exp_rows, months=month_options)
+    return render_template('expenditure.html',
+                           expenditures=exp_rows,
+                           months=month_options,
+                           selected_month=selected_month)
+
+@app.route('/expenditure/export')
+def export_expenditures():
+    """
+    Export expenditures to CSV. Optional query param: ?month=YYYY-MM
+    If month is provided, only that month's expenditures are exported; otherwise all.
+    """
+    db = get_db()
+    month = request.args.get('month')
+    if month:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures WHERE month = ? ORDER BY date DESC, id DESC', (month,))
+        filename = f"expenditures_{month}.csv"
+    else:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures ORDER BY month DESC, date DESC, id DESC')
+        filename = "expenditures_all.csv"
+
+    rows = cur.fetchall()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Month', 'Date', 'Amount', 'Type', 'Reason', 'Created By'])
+    for r in rows:
+        cw.writerow([
+            r['month'],
+            r['date'] if r['date'] else '',
+            r['amount'] if r['amount'] is not None else '',
+            r['type'] or '',
+            r['reason'] or '',
+            r['created_by'] or ''
+        ])
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 @app.route('/expenditure/delete/<int:exp_id>')
 @require_roles('admin')
