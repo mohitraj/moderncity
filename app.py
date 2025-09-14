@@ -1,4 +1,4 @@
-# app.py (full) - updated with change-password facility
+# app.py (full) - updated with combined Maintenance + Expenditure role
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, Response
 import sqlite3, os, io, csv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -24,7 +24,8 @@ TOTAL_HOUSES = 60
 ROLES = [
     ('admin', 'Admin (full access, can manage users)'),
     ('maintenance', 'Maintenance (can add maintenance records only)'),
-    ('expenditure', 'Expenditure (can add expenditure records only)')
+    ('expenditure', 'Expenditure (can add expenditure records only)'),
+    ('maintenance_expenditure', 'Maintenance + Expenditure (can add maintenance and expenditure)')
 ]
 
 app = Flask(__name__, template_folder='templates')
@@ -167,7 +168,7 @@ def logout():
 # - edit/delete: admin-only
 # ----------------------
 @app.route('/add', methods=['GET','POST'])
-@require_roles('admin', 'maintenance')
+@require_roles('admin', 'maintenance', 'maintenance_expenditure')
 def add():
     if request.method == 'POST':
         try:
@@ -412,7 +413,7 @@ def expenditure():
 
     # POST (create) -> restrict to admin/expenditure
     if request.method == 'POST':
-        if not (is_builtin_admin() or session.get('role') in ('admin', 'expenditure')):
+        if not (is_builtin_admin() or session.get('role') in ('admin', 'expenditure', 'maintenance_expenditure')):
             flash('You do not have permission to add expenditures. Please log in with an account that has the necessary role.')
             return redirect(url_for('login'))
 

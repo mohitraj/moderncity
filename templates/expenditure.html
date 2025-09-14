@@ -42,7 +42,8 @@
 </div>
 
 {# Add form - visible only to authorized users #}
-{% if session.username == 'admin' or session.role == 'admin' or session.role == 'expenditure' %}
+{% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
+
 <div class="card mb-3">
   <div class="card-body">
     <form method="post" class="form-row" id="addExpenditureForm">
