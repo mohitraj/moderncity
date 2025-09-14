@@ -1,4 +1,4 @@
-# app.py (full)
+# app.py (full) - updated with change-password facility
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, Response
 import sqlite3, os, io, csv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -79,6 +79,19 @@ def only_admin_required():
     if is_builtin_admin():
         return True
     return session.get('role') == 'admin'
+
+def login_required(f):
+    """
+    Simple decorator to ensure user is logged in (either builtin admin or a DB user).
+    Redirects to login page otherwise.
+    """
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if session.get('username'):
+            return f(*args, **kwargs)
+        flash('You must be logged in to access that page.')
+        return redirect(url_for('login'))
+    return wrapped
 
 # ---------------------------
 # Routes
@@ -293,6 +306,98 @@ def delete_user(user_id):
     db.commit()
     flash('User deleted')
     return redirect(url_for('admin_panel'))
+
+# ----------------------
+# Password management routes (ADDED)
+# ----------------------
+@app.route('/change_password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    """
+    Allows the currently logged-in DB user to change their own password.
+    Built-in admin (username==ADMIN_USER) cannot change ADMIN_PASS here (it's code constant).
+    """
+    username = session.get('username')
+    # prevent builtin admin from using this to change the code-based ADMIN_PASS
+    if username == ADMIN_USER:
+        flash('Built-in admin password is defined in code and cannot be changed via this interface. To change it, update ADMIN_PASS in your app configuration.')
+        return redirect(url_for('index'))
+
+    db = get_db()
+    cur = db.execute('SELECT * FROM users WHERE username = ?', (username,))
+    user = cur.fetchone()
+    if not user:
+        flash('User record not found')
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        current = request.form.get('current_password') or ''
+        newp = request.form.get('new_password') or ''
+        confirm = request.form.get('confirm_password') or ''
+
+        if not current or not newp or not confirm:
+            flash('All fields are required')
+            return redirect(url_for('change_password'))
+
+        # verify current password
+        if not check_password_hash(user['password_hash'], current):
+            flash('Current password is incorrect')
+            return redirect(url_for('change_password'))
+
+        if newp != confirm:
+            flash('New password and confirmation do not match')
+            return redirect(url_for('change_password'))
+
+        if len(newp) < 6:
+            flash('New password should be at least 6 characters long')
+            return redirect(url_for('change_password'))
+
+        new_hash = generate_password_hash(newp)
+        db.execute('UPDATE users SET password_hash = ? WHERE username = ?', (new_hash, username))
+        db.commit()
+        flash('Password changed successfully')
+        return redirect(url_for('index'))
+
+    return render_template('change_password.html', username=username)
+
+@app.route('/admin/reset_password/<int:user_id>', methods=['GET', 'POST'])
+def admin_reset_password(user_id):
+    """
+    Admin-only route to reset another user's password without needing their current password.
+    Accessible to builtin admin and users with role 'admin'.
+    """
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cur = db.execute('SELECT id, username, role FROM users WHERE id = ?', (user_id,))
+    user = cur.fetchone()
+    if not user:
+        flash('User not found')
+        return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        newp = request.form.get('new_password') or ''
+        confirm = request.form.get('confirm_password') or ''
+        if not newp or not confirm:
+            flash('Both password fields are required')
+            return redirect(url_for('admin_reset_password', user_id=user_id))
+        if newp != confirm:
+            flash('Passwords do not match')
+            return redirect(url_for('admin_reset_password', user_id=user_id))
+        if len(newp) < 6:
+            flash('New password should be at least 6 characters long')
+            return redirect(url_for('admin_reset_password', user_id=user_id))
+
+        new_hash = generate_password_hash(newp)
+        db.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_hash, user_id))
+        db.commit()
+        flash(f"Password for user '{user['username']}' has been reset")
+        return redirect(url_for('admin_panel'))
+
+    # GET
+    return render_template('admin_reset_password.html', user=user)
 
 # ----------------------
 # Expenditure routes

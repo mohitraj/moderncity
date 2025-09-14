@@ -90,6 +90,12 @@
               Signed in as <strong>{{ session.get('username') }}</strong>
               {% if session.get('role') %} <small class="text-muted">({{ session.get('role') }})</small>{% endif %}
             </span>
+
+            {# Show Change Password link for DB users only (hide for built-in admin) #}
+            {% if session.get('username') != 'admin' %}
+              <a href="{{ url_for('change_password') }}" class="btn btn-sm btn-outline-secondary ml-1">Change password</a>
+            {% endif %}
+
             <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary ml-1">Logout</a>
           {% else %}
             <a href="{{ url_for('login') }}" class="btn btn-sm btn-primary">Sign in</a>
