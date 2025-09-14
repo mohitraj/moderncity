@@ -7,7 +7,7 @@ from functools import wraps
 APP_SECRET = 'change_this_secret'
 # built-in admin credentials (also allowed to create accounts)
 ADMIN_USER = 'admin'
-ADMIN_PASS = 'admin'
+ADMIN_PASS = 'Mo980616'
 DB_PATH = 'maintenance.db'
 
 MONTHS = [
