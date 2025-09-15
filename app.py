@@ -1,8 +1,8 @@
-# app.py (full) - updated with combined Maintenance + Expenditure role
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, Response
 import sqlite3, os, io, csv
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+import init_db as idb
 
 APP_SECRET = 'change_this_secret'
 # built-in admin credentials (also allowed to create accounts)
@@ -93,6 +93,31 @@ def login_required(f):
         flash('You must be logged in to access that page.')
         return redirect(url_for('login'))
     return wrapped
+
+# ---------------------------
+# Utility helpers for bulk parsing
+# ---------------------------
+def _resolve_month_key(value):
+    """
+    Accepts string like '2025-08' or display key 'aug_2025' or full label.
+    Returns database month key if valid, else None.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    # If already database key style '2025-08', accept
+    for _, db_key, _ in MONTHS:
+        if value == db_key:
+            return db_key
+    # Allow display_key like 'aug_2025'
+    for display_key, db_key, _ in MONTHS:
+        if value == display_key:
+            return db_key
+    # Allow matching label case-insensitive
+    for _, db_key, label in MONTHS:
+        if value.lower() == label.lower():
+            return db_key
+    return None
 
 # ---------------------------
 # Routes
@@ -251,7 +276,7 @@ def export_month(month_key):
         cw.writerow([r['house_number'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
     output = si.getvalue()
     filename = f"payments_{db_key}.csv"
-    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
 
 @app.route('/export_year/<year>')
 def export_year(year):
@@ -265,7 +290,7 @@ def export_year(year):
         cw.writerow([r['house_number'], r['month'], r['date_paid'] if r['date_paid'] else '', r['amount'] if r['amount'] is not None else ''])
     output = si.getvalue()
     filename = f"payments_{year}.csv"
-    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
 
 # ----------------------
 # Admin panel (create users)
@@ -307,6 +332,200 @@ def delete_user(user_id):
     db.commit()
     flash('User deleted')
     return redirect(url_for('admin_panel'))
+
+# ----------------------
+# Bulk upload endpoints (admin-only)
+#
+# Maintenance CSV format (expected header or order):
+# House, Month, Date Paid, Amount
+# 1, 2025-08, 02-08-2025, 1200
+#
+# Expenditure CSV format (expected header or order):
+# Month, Date, Amount, Type, Reason
+# 2025-08, 03-08-2025, 3500, Repair, 'Pump repaired'
+# ----------------------
+@app.route('/admin/bulk_upload_maintenance', methods=['GET', 'POST'])
+def bulk_upload_maintenance():
+    if not only_admin_required():
+        flash('Admin access required to upload files')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        uploaded = request.files.get('file')
+        if not uploaded:
+            flash('No file uploaded')
+            return redirect(url_for('admin_panel'))
+
+        try:
+            stream = io.StringIO(uploaded.stream.read().decode('utf-8-sig'))
+        except Exception:
+            flash('Could not read uploaded file (ensure it is a text CSV in UTF-8).')
+            return redirect(url_for('admin_panel'))
+
+        reader = csv.reader(stream)
+        rows = list(reader)
+        if not rows:
+            flash('CSV is empty')
+            return redirect(url_for('admin_panel'))
+
+        # If header line present, detect it (check first row for non-numeric house)
+        header = rows[0]
+        start_idx = 0
+        if len(header) >= 1:
+            first_cell = header[0].strip().lower()
+            if first_cell in ('house', 'house number', 'house_number'):
+                start_idx = 1
+
+        db = get_db()
+        success_count = 0
+        error_rows = []
+        for idx, row in enumerate(rows[start_idx:], start=start_idx+1):
+            if not row or all([c.strip()=='' for c in row]):
+                # skip blank lines
+                continue
+            # Expected columns: House, Month, Date Paid, Amount
+            # Accept if fewer columns (try to parse best we can)
+            try:
+                house_raw = row[0].strip()
+                month_raw = row[1].strip() if len(row) > 1 else ''
+                date_paid_raw = row[2].strip() if len(row) > 2 else ''
+                amount_raw = row[3].strip() if len(row) > 3 else ''
+            except Exception:
+                error_rows.append((idx, 'Malformed row'))
+                continue
+
+            # validate house
+            try:
+                house = int(house_raw)
+                if house < 1 or house > TOTAL_HOUSES:
+                    raise ValueError('House number out of range')
+            except Exception as e:
+                error_rows.append((idx, f'Invalid house: {house_raw} ({e})'))
+                continue
+
+            # validate month -> convert to db_key like '2025-08'
+            month_key = _resolve_month_key(month_raw)
+            if not month_key:
+                error_rows.append((idx, f'Invalid month: {month_raw}'))
+                continue
+
+            date_paid = date_paid_raw if date_paid_raw != '' else None
+            if amount_raw == '':
+                amount = None
+            else:
+                try:
+                    amount = int(amount_raw)
+                except Exception:
+                    error_rows.append((idx, f'Invalid amount: {amount_raw}'))
+                    continue
+
+            # Update records table if row exists for house/month, else report error
+            cur = db.execute('SELECT id FROM records WHERE house_number = ? AND month = ?', (house, month_key))
+            rec = cur.fetchone()
+            if not rec:
+                # Optionally, we could insert a new record — but current DB layout likely pre-seeded.
+                error_rows.append((idx, f'No record for house {house} and month {month_key}'))
+                continue
+
+            try:
+                db.execute('UPDATE records SET date_paid = ?, amount = ? WHERE house_number = ? AND month = ?', (date_paid, amount, house, month_key))
+                success_count += 1
+            except Exception as e:
+                error_rows.append((idx, f'DB error: {e}'))
+                continue
+
+        db.commit()
+        flash(f'Bulk upload complete: {success_count} rows processed, {len(error_rows)} errors')
+        if error_rows:
+            # Show up to first 10 errors in flash (more can be logged)
+            for e in error_rows[:10]:
+                flash(f'Row {e[0]}: {e[1]}')
+        return redirect(url_for('admin_panel'))
+
+    # GET - ideally you will POST from admin panel. Provide a minimal instruction page if someone navigates here.
+    return render_template('admin_bulk_upload_maintenance.html', months=[(db_key, label) for _, db_key, label in MONTHS])
+
+@app.route('/admin/bulk_upload_expenditure', methods=['GET', 'POST'])
+def bulk_upload_expenditure():
+    if not only_admin_required():
+        flash('Admin access required to upload files')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        uploaded = request.files.get('file')
+        if not uploaded:
+            flash('No file uploaded')
+            return redirect(url_for('admin_panel'))
+
+        try:
+            stream = io.StringIO(uploaded.stream.read().decode('utf-8-sig'))
+        except Exception:
+            flash('Could not read uploaded file (ensure it is a text CSV in UTF-8).')
+            return redirect(url_for('admin_panel'))
+
+        reader = csv.reader(stream)
+        rows = list(reader)
+        if not rows:
+            flash('CSV is empty')
+            return redirect(url_for('admin_panel'))
+
+        # If header line present, detect it (check first row for something non-date or 'month')
+        header = rows[0]
+        start_idx = 0
+        hdr0 = header[0].strip().lower() if header else ''
+        if hdr0 in ('month', 'date', 'amount', 'type', 'reason'):
+            start_idx = 1
+
+        db = get_db()
+        success_count = 0
+        error_rows = []
+        for idx, row in enumerate(rows[start_idx:], start=start_idx+1):
+            if not row or all([c.strip()=='' for c in row]):
+                continue
+            # Expected columns: Month, Date, Amount, Type, Reason
+            try:
+                month_raw = row[0].strip() if len(row) > 0 else ''
+                date_raw = row[1].strip() if len(row) > 1 else ''
+                amount_raw = row[2].strip() if len(row) > 2 else ''
+                type_raw = row[3].strip() if len(row) > 3 else ''
+                reason_raw = row[4].strip() if len(row) > 4 else ''
+            except Exception:
+                error_rows.append((idx, 'Malformed row'))
+                continue
+
+            month_key = _resolve_month_key(month_raw)
+            if not month_key:
+                error_rows.append((idx, f'Invalid month: {month_raw}'))
+                continue
+
+            date = date_raw if date_raw != '' else None
+            try:
+                amount = int(amount_raw)
+            except Exception:
+                error_rows.append((idx, f'Invalid amount: {amount_raw}'))
+                continue
+
+            exp_type = type_raw or None
+            reason = reason_raw or ''
+
+            created_by = session.get('username') or ADMIN_USER
+            try:
+                db.execute('INSERT INTO expenditures (month, date, amount, type, reason, created_by) VALUES (?,?,?,?,?,?)',
+                           (month_key, date, amount, exp_type, reason, created_by))
+                success_count += 1
+            except Exception as e:
+                error_rows.append((idx, f'DB error: {e}'))
+                continue
+
+        db.commit()
+        flash(f'Expenditure bulk upload: {success_count} rows added, {len(error_rows)} errors')
+        if error_rows:
+            for e in error_rows[:10]:
+                flash(f'Row {e[0]}: {e[1]}')
+        return redirect(url_for('expenditure'))
+
+    # GET - minimal instruction page
+    return render_template('admin_bulk_upload_expenditure.html', months=[(db_key, label) for _, db_key, label in MONTHS])
 
 # ----------------------
 # Password management routes (ADDED)
@@ -479,7 +698,7 @@ def export_expenditures():
             r['created_by'] or ''
         ])
     output = si.getvalue()
-    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
 
 @app.route('/expenditure/delete/<int:exp_id>')
 @require_roles('admin')
@@ -496,4 +715,5 @@ def delete_expenditure(exp_id):
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         print("Database not found. Run 'python init_db.py' to create it.")
+        idb.main()
     app.run(host="0.0.0.0", debug=True)

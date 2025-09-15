@@ -31,6 +31,62 @@
   </div>
 </div>
 
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Bulk Uploads (Admin only)</h5>
+
+    {% if session.username == 'admin' or session.role == 'admin' %}
+      <div class="mb-4">
+        <h6>Maintenance (payments) CSV</h6>
+        <p class="mb-2 small text-muted">
+          Upload a CSV with columns <code>House, Month, Date Paid, Amount</code>.
+          Header row is optional. Accepted Month values: <code>2025-08</code>, display key like <code>aug_2025</code>, or full label like <code>August 2025</code>.
+        </p>
+
+        <form method="post" action="{{ url_for('bulk_upload_maintenance') }}" enctype="multipart/form-data" class="form-inline">
+          <div class="form-group mr-2">
+            <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
+          </div>
+          <button class="btn btn-sm btn-outline-primary">Upload Maintenance CSV</button>
+        </form>
+
+        <small class="d-block mt-2"><strong>Sample:</strong></small>
+        <pre class="small bg-light border p-2">House,Month,Date Paid,Amount
+1,2025-08,02-08-2025,1200
+2,2025-08,03-08-2025,1200</pre>
+      </div>
+
+      <div>
+        <h6>Expenditure CSV</h6>
+        <p class="mb-2 small text-muted">
+          Upload a CSV with columns <code>Month, Date, Amount, Type, Reason</code>.
+          Header row is optional. Month format same as maintenance.
+        </p>
+
+        <form method="post" action="{{ url_for('bulk_upload_expenditure') }}" enctype="multipart/form-data" class="form-inline">
+          <div class="form-group mr-2">
+            <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
+          </div>
+          <button class="btn btn-sm btn-outline-primary">Upload Expenditure CSV</button>
+        </form>
+
+        <small class="d-block mt-2"><strong>Sample:</strong></small>
+        <pre class="small bg-light border p-2">Month,Date,Amount,Type,Reason
+2025-08,03-08-2025,3500,Repair,Pump repaired</pre>
+      </div>
+
+      <div class="mt-3 small text-muted">
+        Note: The upload handlers will validate rows and report a summary via flash messages (success count and row-level errors). If you want the maintenance upload to create missing house/month records instead of reporting them as errors, I can change that behavior.
+      </div>
+
+    {% else %}
+      <div class="alert alert-warning">
+        Bulk upload is available to admin accounts only.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
 <div class="card">
   <div class="card-body">
     <h5 class="card-title">Existing Users</h5>
