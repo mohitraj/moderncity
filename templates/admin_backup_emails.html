@@ -1,0 +1,33 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Backup Emails</h5>
+    <form method="post">
+      <div class="form-group">
+        <input name="email" class="form-control form-control-sm" placeholder="email@example.com" required>
+      </div>
+      <button class="btn btn-sm btn-success">Add</button>
+    </form>
+
+    <hr>
+    <table class="table table-sm">
+      <thead><tr><th>Email</th><th>Added By</th><th>Added At</th><th></th></tr></thead>
+      <tbody>
+        {% for e in emails %}
+        <tr>
+          <td>{{ e.email }}</td>
+          <td>{{ e.added_by }}</td>
+          <td>{{ e.created_at }}</td>
+          <td><a href="{{ url_for('delete_backup_email', email_id=e.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remove?')">Remove</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted">No backup emails configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p><a class="btn btn-primary" href="{{ url_for('send_backup') }}">Send Backup Now</a></p>
+  </div>
+</div>
+{% endblock %}

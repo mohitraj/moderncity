@@ -1,131 +1,275 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="card mb-3">
-  <div class="card-body">
-    <h5 class="card-title">Admin Panel — Create User</h5>
+<div class="row">
+  <!-- Sidebar -->
+  <aside class="col-md-3">
+    <div class="card mb-3">
+      <div class="card-body p-3">
+        <h5 class="card-title mb-2">Admin Menu</h5>
+        <div class="list-group">
+          <a href="#create-user" class="list-group-item list-group-item-action admin-section-link active" data-target="create-user">Create User</a>
+          <a href="#bulk-uploads" class="list-group-item list-group-item-action admin-section-link" data-target="bulk-uploads">Bulk Uploads (Admin only)</a>
+          <a href="#existing-users" class="list-group-item list-group-item-action admin-section-link" data-target="existing-users">Existing Users</a>
 
-    {# Only show create-user form to builtin admin or role 'admin' #}
-    {% if session.username == 'admin' or session.role == 'admin' %}
-    <form method="post" class="form-inline">
-      <div class="form-group mr-2">
-        <input name="username" class="form-control form-control-sm" placeholder="username" required>
-      </div>
-      <div class="form-group mr-2">
-        <input name="password" type="password" class="form-control form-control-sm" placeholder="password" required>
-      </div>
-      <div class="form-group mr-2">
-        <select name="role" class="form-control form-control-sm">
-          {% for value, label in roles %}
-            <option value="{{ value }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <button class="btn btn-sm btn-primary">Create User</button>
-    </form>
-    {% else %}
-      <div class="alert alert-info mb-0">
-        Only admin users can create new accounts.
-      </div>
-    {% endif %}
+          <!-- Backup Emails link + inline list of existing emails shown on same sidebar -->
+          <a href="#backup-emails" class="list-group-item list-group-item-action admin-section-link" data-target="backup-emails">Backup Emails</a>
 
-  </div>
-</div>
-
-<div class="card mb-3">
-  <div class="card-body">
-    <h5 class="card-title">Bulk Uploads (Admin only)</h5>
-
-    {% if session.username == 'admin' or session.role == 'admin' %}
-      <div class="mb-4">
-        <h6>Maintenance (payments) CSV</h6>
-        <p class="mb-2 small text-muted">
-          Upload a CSV with columns <code>House, Month, Date Paid, Amount</code>.
-          Header row is optional. Accepted Month values: <code>2025-08</code>, display key like <code>aug_2025</code>, or full label like <code>August 2025</code>.
-        </p>
-
-        <form method="post" action="{{ url_for('bulk_upload_maintenance') }}" enctype="multipart/form-data" class="form-inline">
-          <div class="form-group mr-2">
-            <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
+          <div id="sidebar-backup-emails" class="pl-3 pt-2 pb-2 small text-muted" style="max-height:160px; overflow:auto;">
+            {% if emails %}
+              <ul class="list-unstyled mb-0">
+                {% for e in emails %}
+                  <li class="mb-1"><span class="d-block text-truncate" title="{{ e.email }}">{{ e.email }}</span></li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="text-muted">No backup emails configured.</div>
+            {% endif %}
           </div>
-          <button class="btn btn-sm btn-outline-primary">Upload Maintenance CSV</button>
-        </form>
 
-        <small class="d-block mt-2"><strong>Sample:</strong></small>
-        <pre class="small bg-light border p-2">House,Month,Date Paid,Amount
+          <a href="{{ url_for('send_backup') }}" class="list-group-item list-group-item-action">Send Backup (Separate page)</a>
+          <a href="{{ url_for('expenditure') }}" class="list-group-item list-group-item-action">View Expenditures</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-3">
+        <h6 class="card-title mb-2">Quick Actions</h6>
+        <a class="btn btn-sm btn-outline-primary btn-block mb-2" href="{{ url_for('send_backup') }}">Send Backup Now</a>
+        <a class="btn btn-sm btn-outline-secondary btn-block" href="{{ url_for('index') }}">Go to Dashboard</a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="col-md-9">
+    <!-- Create user card -->
+    <div id="create-user" class="admin-section card mb-3">
+      <div class="card-body">
+        <h5 class="card-title">Admin Panel — Create User</h5>
+
+        {# Only show create-user form to builtin admin or role 'admin' #}
+        {% if session.username == 'admin' or session.role == 'admin' %}
+        <form method="post" class="form-inline">
+          <div class="form-group mr-2">
+            <input name="username" class="form-control form-control-sm" placeholder="username" required>
+          </div>
+          <div class="form-group mr-2">
+            <input name="password" type="password" class="form-control form-control-sm" placeholder="password" required>
+          </div>
+          <div class="form-group mr-2">
+            <select name="role" class="form-control form-control-sm">
+              {% for value, label in roles %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-sm btn-primary">Create User</button>
+        </form>
+        {% else %}
+          <div class="alert alert-info mb-0">
+            Only admin users can create new accounts.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Bulk uploads -->
+    <div id="bulk-uploads" class="admin-section card mb-3" style="display:none;">
+      <div class="card-body">
+        <h5 class="card-title">Bulk Uploads (Admin only)</h5>
+
+        {% if session.username == 'admin' or session.role == 'admin' %}
+          <div class="mb-4">
+            <h6>Maintenance (payments) CSV</h6>
+            <p class="mb-2 small text-muted">
+              Upload a CSV with columns <code>House, Month, Date Paid, Amount</code>.
+              Header row is optional. Accepted Month values: <code>2025-08</code>, display key like <code>aug_2025</code>, or full label like <code>August 2025</code>.
+            </p>
+
+            <form method="post" action="{{ url_for('bulk_upload_maintenance') }}" enctype="multipart/form-data" class="form-inline">
+              <div class="form-group mr-2">
+                <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
+              </div>
+              <button class="btn btn-sm btn-outline-primary">Upload Maintenance CSV</button>
+            </form>
+
+            <small class="d-block mt-2"><strong>Sample:</strong></small>
+            <pre class="small bg-light border p-2">House,Month,Date Paid,Amount
 1,2025-08,02-08-2025,1200
 2,2025-08,03-08-2025,1200</pre>
-      </div>
-
-      <div>
-        <h6>Expenditure CSV</h6>
-        <p class="mb-2 small text-muted">
-          Upload a CSV with columns <code>Month, Date, Amount, Type, Reason</code>.
-          Header row is optional. Month format same as maintenance.
-        </p>
-
-        <form method="post" action="{{ url_for('bulk_upload_expenditure') }}" enctype="multipart/form-data" class="form-inline">
-          <div class="form-group mr-2">
-            <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
           </div>
-          <button class="btn btn-sm btn-outline-primary">Upload Expenditure CSV</button>
+
+          <div>
+            <h6>Expenditure CSV</h6>
+            <p class="mb-2 small text-muted">
+              Upload a CSV with columns <code>Month, Date, Amount, Type, Reason</code>.
+              Header row is optional. Month format same as maintenance.
+            </p>
+
+            <form method="post" action="{{ url_for('bulk_upload_expenditure') }}" enctype="multipart/form-data" class="form-inline">
+              <div class="form-group mr-2">
+                <input type="file" name="file" accept=".csv,text/csv" required class="form-control-file">
+              </div>
+              <button class="btn btn-sm btn-outline-primary">Upload Expenditure CSV</button>
+            </form>
+
+            <small class="d-block mt-2"><strong>Sample:</strong></small>
+            <pre class="small bg-light border p-2">Month,Date,Amount,Type,Reason
+2025-08,03-08-2025,3500,Repair,Pump repaired</pre>
+          </div>
+
+          <div class="mt-3 small text-muted">
+            Note: The upload handlers will validate rows and report a summary via flash messages (success count and row-level errors).
+          </div>
+
+        {% else %}
+          <div class="alert alert-warning">
+            Bulk upload is available to admin accounts only.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Backup emails -->
+    <div id="backup-emails" class="admin-section card mb-3" style="display:none;">
+      <div class="card-body">
+        <h5 class="card-title">Backup Emails</h5>
+
+        {% if session.username == 'admin' or session.role == 'admin' %}
+        <!-- Add email form -->
+        <form method="post" action="{{ url_for('admin_backup_emails') }}" class="form-inline mb-3">
+          <div class="form-group mr-2" style="flex:1;">
+            <input name="email" type="email" class="form-control form-control-sm w-100" placeholder="email@example.com" required>
+          </div>
+          <button class="btn btn-sm btn-outline-success">Add Backup Email</button>
         </form>
 
-        <small class="d-block mt-2"><strong>Sample:</strong></small>
-        <pre class="small bg-light border p-2">Month,Date,Amount,Type,Reason
-2025-08,03-08-2025,3500,Repair,Pump repaired</pre>
-      </div>
+        <!-- List of emails -->
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered">
+            <thead class="thead-light">
+              <tr>
+                <th>Email</th>
+                <th>Added By</th>
+                <th>Added At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if emails %}
+                {% for e in emails %}
+                <tr>
+                  <td>{{ e.email }}</td>
+                  <td>{{ e.added_by }}</td>
+                  <td>{{ e.created_at }}</td>
+                  <td>
+                    <a href="{{ url_for('delete_backup_email', email_id=e.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remove this email?')">Remove</a>
+                  </td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="4" class="text-muted small">No backup emails configured.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
 
-      <div class="mt-3 small text-muted">
-        Note: The upload handlers will validate rows and report a summary via flash messages (success count and row-level errors). If you want the maintenance upload to create missing house/month records instead of reporting them as errors, I can change that behavior.
-      </div>
+        <p class="mt-2 mb-0">
+          <a class="btn btn-sm btn-primary" href="{{ url_for('send_backup') }}">Send Backup Now</a>
+        </p>
 
-    {% else %}
-      <div class="alert alert-warning">
-        Bulk upload is available to admin accounts only.
+        {% else %}
+          <div class="alert alert-info mb-0">
+            Backup email management available to admin only.
+          </div>
+        {% endif %}
       </div>
-    {% endif %}
-  </div>
+    </div>
+
+    <!-- Existing users -->
+    <div id="existing-users" class="admin-section card mb-3" style="display:none;">
+      <div class="card-body">
+        <h5 class="card-title">Existing Users</h5>
+        <table class="table table-sm table-bordered">
+          <thead class="thead-light">
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>{{ u.username }}</td>
+              <td>
+                {% if u.role == 'admin' %}
+                  <span class="badge badge-danger">Admin</span>
+                {% elif u.role == 'maintenance' %}
+                  <span class="badge badge-info">Maintenance</span>
+                {% elif u.role == 'expenditure' %}
+                  <span class="badge badge-warning">Expenditure</span>
+                {% else %}
+                  <span class="badge badge-secondary">{{ u.role }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if session.username == 'admin' or session.role == 'admin' %}
+                  <a href="{{ url_for('delete_user', user_id=u.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete user?')">Delete</a>
+                {% else %}
+                  <small class="text-muted">Admin only</small>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
 </div>
 
-<div class="card">
-  <div class="card-body">
-    <h5 class="card-title">Existing Users</h5>
-    <table class="table table-sm table-bordered">
-      <thead class="thead-light">
-        <tr>
-          <th>Username</th>
-          <th>Role</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for u in users %}
-        <tr>
-          <td>{{ u.username }}</td>
-          <td>
-            {% if u.role == 'admin' %}
-              <span class="badge badge-danger">Admin</span>
-            {% elif u.role == 'maintenance' %}
-              <span class="badge badge-info">Maintenance</span>
-            {% elif u.role == 'expenditure' %}
-              <span class="badge badge-warning">Expenditure</span>
-            {% else %}
-              <span class="badge badge-secondary">{{ u.role }}</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if session.username == 'admin' or session.role == 'admin' %}
-              <a href="{{ url_for('delete_user', user_id=u.id) }}"
-                 class="btn btn-sm btn-outline-danger"
-                 onclick="return confirm('Delete user?')">Delete</a>
-            {% else %}
-              <small class="text-muted">Admin only</small>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+<script>
+  (function() {
+    const links = document.querySelectorAll('.admin-section-link');
+    const sections = document.querySelectorAll('.admin-section');
+
+    function showSection(targetId) {
+      // hide all
+      sections.forEach(s => s.style.display = 'none');
+      // remove active class
+      links.forEach(l => l.classList.remove('active'));
+      // show requested
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.style.display = '';
+        // mark link active
+        const link = document.querySelector('.admin-section-link[data-target="'+targetId+'"]');
+        if (link) link.classList.add('active');
+        // scroll into view (main column)
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    // wire sidebar links
+    links.forEach(l => {
+      l.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        const target = this.getAttribute('data-target');
+        showSection(target);
+        // update URL hash without jumping
+        history.replaceState(null, '', '#' + target);
+      });
+    });
+
+    // on load: if there's a hash, show that section; otherwise show default (create-user)
+    const initialHash = (location.hash || '').replace('#','');
+    if (initialHash && document.getElementById(initialHash)) {
+      showSection(initialHash);
+    } else {
+      showSection('create-user');
+    }
+  })();
+</script>
 {% endblock %}

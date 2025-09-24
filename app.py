@@ -296,6 +296,7 @@ def export_year(year):
 # Admin panel (create users)
 # Only builtin admin or users with role 'admin' can access/create/delete users
 # ----------------------
+'''
 @app.route('/admin', methods=['GET','POST'])
 def admin_panel():
     if not only_admin_required():
@@ -321,6 +322,41 @@ def admin_panel():
     users = db.execute('SELECT id, username, role FROM users ORDER BY username').fetchall()
     # pass ROLES so template can render the dropdown
     return render_template('admin.html', users=users, roles=ROLES)
+'''
+@app.route('/admin', methods=['GET','POST'])
+def admin_panel():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+    db = get_db()
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password')
+        role = request.form.get('role') or 'admin'
+        if not username or not password:
+            flash('Username and password required')
+            return redirect(url_for('admin_panel'))
+        password_hash = generate_password_hash(password)
+        try:
+            db.execute('INSERT INTO users (username, password_hash, role) VALUES (?,?,?)', (username, password_hash, role))
+            db.commit()
+            flash('User created')
+        except sqlite3.IntegrityError:
+            flash('Username already exists')
+        return redirect(url_for('admin_panel'))
+
+    users = db.execute('SELECT id, username, role FROM users ORDER BY username').fetchall()
+    # ✅ Load backup emails from extra.db and pass into template
+    try:
+        edb = get_extra_db()
+        emails = edb.execute(
+            'SELECT id, email, added_by, created_at FROM backup_emails ORDER BY email'
+        ).fetchall()
+    except Exception:
+        emails = []
+
+    # pass ROLES so template can render the dropdown and pass emails
+    return render_template('admin.html', users=users, roles=ROLES, emails=emails)
 
 @app.route('/admin/delete_user/<int:user_id>')
 def delete_user(user_id):
@@ -708,6 +744,287 @@ def delete_expenditure(exp_id):
     db.commit()
     flash('Expenditure deleted')
     return redirect(url_for('expenditure'))
+
+@app.route("/photo")
+def photo_page():
+    # Example: static/picture/sample.jpg
+    image_url = url_for('static', filename='picture/sample.jpg')
+    return render_template(
+        "show_photo.html",
+        image_url=image_url,
+        caption="Modern City Layout",
+        alt="Modern City Layout"
+    )
+
+# ------------------- START: APPENDED extra.db + backup email/send-backup code -------------------
+# New imports used by appended code
+import smtplib, traceback
+from email.message import EmailMessage
+from datetime import datetime
+
+# Separate DB path for backup emails (so maintenance.db is untouched)
+EXTRA_DB_PATH = 'extra.db'
+
+def get_extra_db():
+    """Open extra.db and ensure backup_emails table exists (created on first access)."""
+    db = getattr(g, '_extra_database', None)
+    if db is None:
+        # create file/connection
+        db = g._extra_database = sqlite3.connect(EXTRA_DB_PATH)
+        db.row_factory = sqlite3.Row
+        # ensure table exists
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS backup_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            added_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        """)
+        db.commit()
+    return db
+
+# ensure extra DB connection closed too
+@app.teardown_appcontext
+def close_extra_connection(exception):
+    edb = getattr(g, '_extra_database', None)
+    if edb is not None:
+        edb.close()
+
+# SMTP settings (update these to your provider)
+SMTP_HOST = 'smtp.gmail.com'
+SMTP_PORT = 587
+SMTP_USERNAME = 'modernmohitraj@gmail.com'
+SMTP_PASSWORD = 'twdyupohdfrvyurc'
+EMAIL_FROM = 'modernmohitraj@gmail.com'
+def send_email_with_attachments(smtp_host, smtp_port, username, password, sender, recipients, subject, body_text, attachments):
+    """
+    attachments: list of tuples (filename, content_str_or_bytes, mime_type)
+    Returns (success_bool, message)
+    """
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = ', '.join(recipients)
+    msg.set_content(body_text)
+
+    for fname, content, mime_type in attachments:
+        if isinstance(content, str):
+            content_bytes = content.encode('utf-8')
+        else:
+            content_bytes = content
+        maintype, subtype = ('application', 'octet-stream')
+        if mime_type:
+            try:
+                maintype, subtype = mime_type.split('/', 1)
+            except Exception:
+                maintype, subtype = ('application', 'octet-stream')
+        msg.add_attachment(content_bytes, maintype=maintype, subtype=subtype, filename=fname)
+
+    try:
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+            server.ehlo()
+            try:
+                server.starttls()
+                server.ehlo()
+            except Exception:
+                pass
+        if username and password:
+            server.login(username, password)
+        server.send_message(msg)
+        server.quit()
+        return True, "Sent"
+    except Exception as e:
+        return False, f"Error sending email: {e}\n{traceback.format_exc()}"
+
+# CSV generators (reuse same queries as your export routes)
+def _generate_payments_csv_string_for_month(db, month_db_key):
+    cur = db.execute('SELECT house_number, date_paid, amount FROM records WHERE month = ? ORDER BY house_number', (month_db_key,))
+    rows = cur.fetchall()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['House', 'Date Paid', 'Amount'])
+    for r in rows:
+        cw.writerow([r['house_number'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
+    return f"payments_{month_db_key}.csv", si.getvalue()
+
+def _generate_payments_csv_string_for_year(db, year):
+    cur = db.execute('SELECT house_number, month, date_paid, amount FROM records WHERE substr(month,1,4)=? ORDER BY month, house_number', (year,))
+    rows = cur.fetchall()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['House','Month','Date Paid','Amount'])
+    for r in rows:
+        cw.writerow([r['house_number'], r['month'], r['date_paid'] if r['date_paid'] else '', r['amount'] if r['amount'] is not None else ''])
+    return f"payments_{year}.csv", si.getvalue()
+
+def _generate_expenditures_csv_string(db, month=None):
+    if month:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures WHERE month = ? ORDER BY date DESC, id DESC', (month,))
+        filename = f"expenditures_{month}.csv"
+    else:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures ORDER BY month DESC, date DESC, id DESC')
+        filename = "expenditures_all.csv"
+    rows = cur.fetchall()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Month', 'Date', 'Amount', 'Type', 'Reason', 'Created By'])
+    for r in rows:
+        cw.writerow([
+            r['month'],
+            r['date'] if r['date'] else '',
+            r['amount'] if r['amount'] is not None else '',
+            r['type'] or '',
+            r['reason'] or '',
+            r['created_by'] or ''
+        ])
+    return filename, si.getvalue()
+'''
+# New route to manage backup emails (stored in extra.db)
+@app.route('/admin/backup_emails', methods=['GET', 'POST'])
+def admin_backup_emails():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+    edb = get_extra_db()
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        if not email:
+            flash('Email required')
+            return redirect(url_for('admin_backup_emails'))
+        try:
+            edb.execute('INSERT INTO backup_emails (email, added_by) VALUES (?, ?)', (email, session.get('username') or 'admin'))
+            edb.commit()
+            flash('Email added')
+        except sqlite3.IntegrityError:
+            flash('Email already exists')
+        return redirect(url_for('admin_backup_emails'))
+
+    emails = edb.execute('SELECT id, email, added_by, created_at FROM backup_emails ORDER BY email').fetchall()
+    # If you have a dedicated template for listing emails:
+    # return render_template('admin_backup_emails.html', emails=emails)
+    # To keep things minimal and safe (no assumptions about templates), reuse admin.html if it can accept 'emails'.
+    # But original admin_panel did not pass emails, so render a small dedicated page:
+    return render_template('admin_backup_emails.html', emails=emails)
+'''
+@app.route('/admin/backup_emails', methods=['GET', 'POST'])
+def admin_backup_emails():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    edb = get_extra_db()
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        if not email:
+            flash('Email required')
+            # Redirect back to admin page and open backup-emails section
+            return redirect(url_for('admin_panel') + '#backup-emails')
+        try:
+            edb.execute(
+                'INSERT INTO backup_emails (email, added_by) VALUES (?, ?)',
+                (email, session.get('username') or 'admin')
+            )
+            edb.commit()
+            flash('Email added')
+        except sqlite3.IntegrityError:
+            flash('Email already exists')
+        # After adding, return to admin page and open the backup-emails section
+        return redirect(url_for('admin_panel') + '#backup-emails')
+
+    # For GET requests, just redirect to the admin page's backup section.
+    # The admin page should be responsible for loading and passing `emails` to the template.
+    return redirect(url_for('admin_panel') + '#backup-emails')
+
+
+'''
+@app.route('/admin/backup_emails/delete/<int:email_id>')
+def delete_backup_email(email_id):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+    edb = get_extra_db()
+    edb.execute('DELETE FROM backup_emails WHERE id = ?', (email_id,))
+    edb.commit()
+    flash('Email removed')
+    return redirect(url_for('admin_backup_emails'))
+'''
+@app.route('/admin/backup_emails/delete/<int:email_id>')
+def delete_backup_email(email_id):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+    edb = get_extra_db()
+    edb.execute('DELETE FROM backup_emails WHERE id = ?', (email_id,))
+    edb.commit()
+    flash('Email removed')
+    # return to admin page backup section
+    return redirect(url_for('admin_panel') + '#backup-emails')
+
+# Route to generate CSVs and email to configured backup emails
+@app.route('/send_backup', methods=['GET', 'POST'])
+def send_backup():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    edb = get_extra_db()
+
+    if request.method == 'POST':
+        month_payments = (request.form.get('month_for_payments') or '').strip()
+        year_payments = (request.form.get('year_for_payments') or '').strip()
+        month_exps = (request.form.get('month_for_expenditures') or '').strip()
+
+        rows = edb.execute('SELECT email FROM backup_emails').fetchall()
+        recipients = [r['email'] for r in rows]
+        if not recipients:
+            flash('No backup emails configured. Add addresses at Admin → Backup Emails')
+            return redirect(url_for('admin_backup_emails'))
+
+        attachments = []
+        if month_payments:
+            fname, content = _generate_payments_csv_string_for_month(db, month_payments)
+            attachments.append((fname, content, 'text/csv'))
+        elif year_payments:
+            fname, content = _generate_payments_csv_string_for_year(db, year_payments)
+            attachments.append((fname, content, 'text/csv'))
+        else:
+            curr_year = datetime.utcnow().strftime('%Y')
+            fname, content = _generate_payments_csv_string_for_year(db, curr_year)
+            attachments.append((fname, content, 'text/csv'))
+
+        if month_exps:
+            fname, content = _generate_expenditures_csv_string(db, month_exps)
+            attachments.append((fname, content, 'text/csv'))
+        else:
+            fname, content = _generate_expenditures_csv_string(db, None)
+            attachments.append((fname, content, 'text/csv'))
+
+        subject = f"Backup - Payments & Expenditures ({datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')})"
+        body = ("Attached are the exported CSV files for payments and expenditures.\n\n"
+                "If you need a different month/year, please use the form and re-send.\n\n"
+                "This is an automated message from the maintenance app.")
+
+        success, message = send_email_with_attachments(
+            SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, EMAIL_FROM,
+            recipients, subject, body, attachments
+        )
+        if success:
+            flash(f'Backup emailed to {len(recipients)} address(es).')
+        else:
+            flash(f'Failed to send backup: {message}')
+        return redirect(url_for('admin_backup_emails'))
+
+    # GET -> show simple form (template should be created as send_backup.html)
+    month_options = [(db_key, label) for _, db_key, label in MONTHS]
+    return render_template('send_backup.html', months=month_options)
+
+# ------------------- END: APPENDED code -------------------
 
 # ----------------------
 # Run

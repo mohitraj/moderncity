@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Send Backup</h5>
+    <p class="text-muted">
+      Use this form to generate CSV backups of payments and expenditures and email them to all saved backup addresses.
+    </p>
+
+    <form method="post">
+      <div class="form-group">
+        <label>Payments - month (YYYY-MM)</label>
+        <input name="month_for_payments" class="form-control form-control-sm" placeholder="e.g. 2025-08">
+        <small class="form-text text-muted">Leave blank to use the year field instead.</small>
+      </div>
+
+      <div class="form-group">
+        <label>Payments - or year (YYYY)</label>
+        <input name="year_for_payments" class="form-control form-control-sm" placeholder="e.g. 2025">
+        <small class="form-text text-muted">If both month and year are blank, current year will be used.</small>
+      </div>
+
+      <div class="form-group">
+        <label>Expenditures - month (YYYY-MM)</label>
+        <input name="month_for_expenditures" class="form-control form-control-sm" placeholder="e.g. 2025-08">
+        <small class="form-text text-muted">Leave blank to export all expenditures.</small>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Generate &amp; Send</button>
+      <a href="{{ url_for('admin_backup_emails') }}" class="btn btn-secondary">Back</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
