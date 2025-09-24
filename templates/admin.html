@@ -15,15 +15,7 @@
           <a href="#backup-emails" class="list-group-item list-group-item-action admin-section-link" data-target="backup-emails">Backup Emails</a>
 
           <div id="sidebar-backup-emails" class="pl-3 pt-2 pb-2 small text-muted" style="max-height:160px; overflow:auto;">
-            {% if emails %}
-              <ul class="list-unstyled mb-0">
-                {% for e in emails %}
-                  <li class="mb-1"><span class="d-block text-truncate" title="{{ e.email }}">{{ e.email }}</span></li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <div class="text-muted">No backup emails configured.</div>
-            {% endif %}
+           
           </div>
 
           <a href="{{ url_for('send_backup') }}" class="list-group-item list-group-item-action">Send Backup (Separate page)</a>
