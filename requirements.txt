@@ -1,2 +1,3 @@
 flask
 gunicorn
+APScheduler==3.11.0
