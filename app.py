@@ -4,6 +4,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import init_db as idb
 
+# scheduling imports (add near other imports at top)
+from flask_apscheduler import APScheduler
+from zoneinfo import ZoneInfo
+from datetime import datetime
+
+
 APP_SECRET = 'change_this_secret'
 # built-in admin credentials (also allowed to create accounts)
 ADMIN_USER = 'admin'
@@ -30,6 +36,11 @@ ROLES = [
 
 app = Flask(__name__, template_folder='templates')
 app.secret_key = APP_SECRET
+
+app.config['SCHEDULER_API_ENABLED'] = True
+app.config['SCHEDULER_TIMEZONE'] = 'Asia/Kolkata'   # IMPORTANT: sends at 23:55 IST
+
+scheduler = APScheduler()
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -1024,6 +1035,70 @@ def send_backup():
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
     return render_template('send_backup.html', months=month_options)
 
+
+
+# The scheduled job. It uses the same CSV generators + send_email_with_attachments helpers
+# It runs within an app context so get_db() and get_extra_db() work.
+@scheduler.task('cron', id='daily_backup_job', hour=23, minute=55)
+def daily_backup_job():
+    try:
+        with app.app_context():
+            # Build DB connections
+            db = get_db()
+            edb = get_extra_db()
+
+            # Collect recipients from extra.db
+            rows = edb.execute('SELECT email FROM backup_emails').fetchall()
+            recipients = [r['email'] for r in rows]
+            if not recipients:
+                print("[daily_backup_job] No backup emails configured; aborting send.")
+                return
+
+            # Determine month key in Asia/Kolkata timezone (send current month's CSVs)
+            now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
+            month_key = now_kolkata.strftime('%Y-%m')
+            year_key = now_kolkata.strftime('%Y')
+
+            # Attachments: payments for current month and expenditures for current month
+            attachments = []
+            try:
+                fname_p, content_p = _generate_payments_csv_string_for_month(db, month_key)
+                attachments.append((fname_p, content_p, 'text/csv'))
+            except Exception as e:
+                print(f"[daily_backup_job] Error generating payments CSV for {month_key}: {e}")
+
+            try:
+                fname_e, content_e = _generate_expenditures_csv_string(db, month_key)
+                attachments.append((fname_e, content_e, 'text/csv'))
+            except Exception as e:
+                print(f"[daily_backup_job] Error generating expenditures CSV for {month_key}: {e}")
+
+            if not attachments:
+                print("[daily_backup_job] No attachments prepared; aborting send.")
+                return
+
+            subject = f"Automated Backup: payments & expenditures ({now_kolkata.strftime('%Y-%m-%d %H:%M %Z')})"
+            body = (
+                "Attached are the automated backup CSVs for payments and expenditures.\n\n"
+                "If you would like a different month/year, use the app's Send Backup form.\n\n"
+                "This is an automated message from the maintenance app."
+            )
+
+            success, message = send_email_with_attachments(
+                SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, EMAIL_FROM,
+                recipients, subject, body, attachments
+            )
+
+            if success:
+                print(f"[daily_backup_job] Backup emailed to {len(recipients)} recipient(s).")
+            else:
+                print(f"[daily_backup_job] Failed to send backup: {message}")
+
+    except Exception as ex:
+        print(f"[daily_backup_job] Unexpected exception: {ex}\n{traceback.format_exc()}")
+
+# ------------------- END: Scheduler block -------------------
+
 # ------------------- END: APPENDED code -------------------
 
 # ----------------------
@@ -1033,4 +1108,7 @@ if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         print("Database not found. Run 'python init_db.py' to create it.")
         idb.main()
+    scheduler.init_app(app)
+    # in dev, avoid double-start from the reloader:
+    scheduler.start()
     app.run(host="0.0.0.0", debug=True)
