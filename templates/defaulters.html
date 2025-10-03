@@ -1,0 +1,199 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    <div class="card mb-3">
+      <div class="card-header bg-danger text-white">
+        <div class="d-flex justify-content-between align-items-center flex-wrap">
+          <div>
+            <h4 class="mb-0">Pending Payments Report</h4>
+            <small>Houses with unpaid maintenance for current and previous months</small>
+          </div>
+          <div class="mt-2 mt-md-0">
+            <a href="{{ url_for('export_defaulters') }}" class="btn btn-light btn-sm">
+              <strong>Export All Months (CSV)</strong>
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="text-muted mb-0">
+          This report shows all houses where payment amount is missing or zero for tracked months.
+          Use this list to follow up with residents about pending payments.
+        </p>
+      </div>
+    </div>
+
+    {% if not defaulters_by_month %}
+      <div class="alert alert-info">
+        No data available for the selected months.
+      </div>
+    {% else %}
+      {% for month_label, defaulter_list in defaulters_by_month.items() %}
+        <div class="card mb-4">
+          <div class="card-header {% if defaulter_list|length == 0 %}bg-success text-white{% else %}bg-warning{% endif %}">
+            <div class="d-flex justify-content-between align-items-center flex-wrap">
+              <h5 class="mb-0">{{ month_label }}</h5>
+              <div class="d-flex align-items-center flex-wrap mt-2 mt-md-0">
+                <div class="mr-3">
+                  <span class="badge badge-light">
+                    Paid: {{ summary[month_label]['paid'] }}
+                  </span>
+                  <span class="badge {% if defaulter_list|length == 0 %}badge-success{% else %}badge-danger{% endif %}">
+                    Unpaid: {{ summary[month_label]['defaulters'] }}
+                  </span>
+                  <span class="badge badge-info">
+                    Total: {{ summary[month_label]['total'] }}
+                  </span>
+                </div>
+                {% if defaulter_list|length > 0 %}
+                  <a href="{{ url_for('export_defaulters', month=summary[month_label]['db_key']) }}" 
+                     class="btn btn-sm btn-dark mt-2 mt-sm-0">
+                    Export Month CSV
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body">
+            {% if defaulter_list|length == 0 %}
+              <div class="alert alert-success mb-0">
+                <strong>All houses have paid for this month!</strong>
+              </div>
+            {% else %}
+              <div class="row">
+                {% for record in defaulter_list %}
+                  <div class="col-4 col-sm-3 col-md-2 col-lg-1 mb-2">
+                    <div class="card bg-danger text-white text-center house-card">
+                      <div class="card-body p-1">
+                        <div class="house-number">#{{ record['house_number'] }}</div>
+                      </div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+
+              <!-- Summary section -->
+              <div class="mt-3 pt-3 border-top">
+                <p class="mb-2">
+                  <strong>Total Pending:</strong> {{ defaulter_list|length }} houses
+                </p>
+                <details>
+                  <summary class="text-primary" style="cursor: pointer;">View house numbers as comma-separated list</summary>
+                  <div class="mt-2 p-3 bg-light rounded">
+                    <code>
+                      {% for record in defaulter_list %}{{ record['house_number'] }}{% if not loop.last %}, {% endif %}{% endfor %}
+                    </code>
+                    <button class="btn btn-sm btn-secondary mt-2" onclick="copyToClipboard('{{ month_label }}')">
+                      Copy to Clipboard
+                    </button>
+                  </div>
+                </details>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    <!-- Quick actions -->
+    <div class="card mt-4">
+      <div class="card-body">
+        <h6 class="card-title">Quick Actions</h6>
+        <div class="btn-group-vertical btn-group-sm" role="group">
+          {% if session.get('role') in ['admin','maintenance', 'maintenance_expenditure'] or session.get('username') == 'admin' %}
+            <a href="{{ url_for('add') }}" class="btn btn-primary">Add Payment</a>
+          {% endif %}
+          <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+          {% if session.get('role') == 'admin' or session.get('username') == 'admin' %}
+            <a href="{{ url_for('admin_panel') }}" class="btn btn-outline-secondary">Admin Panel</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Additional styles for defaulters page */
+  .badge {
+    padding: 0.5em 0.75em;
+    font-size: 0.9rem;
+  }
+  
+  /* Smaller house cards */
+  .house-card {
+    border-radius: 6px;
+    transition: transform 0.2s;
+  }
+  
+  .house-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  }
+  
+  .house-number {
+    font-size: 0.9rem;
+    font-weight: bold;
+  }
+  
+  details summary {
+    user-select: none;
+  }
+  details[open] summary {
+    margin-bottom: 0.5rem;
+  }
+  
+  @media (max-width: 575.98px) {
+    .card-header h5 {
+      font-size: 1rem;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.35em 0.5em;
+    }
+    .house-number {
+      font-size: 0.8rem;
+    }
+  }
+</style>
+
+<script>
+  function copyToClipboard(monthLabel) {
+    // Find the code element within the expanded details for this month
+    var details = event.target.closest('details');
+    var code = details.querySelector('code');
+    var text = code.textContent;
+    
+    // Copy to clipboard
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function() {
+        alert('House numbers copied to clipboard!');
+      }, function(err) {
+        // Fallback for older browsers
+        fallbackCopy(text);
+      });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+  
+  function fallbackCopy(text) {
+    var textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      alert('House numbers copied to clipboard!');
+    } catch (err) {
+      alert('Failed to copy. Please select and copy manually.');
+    }
+    document.body.removeChild(textArea);
+  }
+</script>
+{% endblock %}
