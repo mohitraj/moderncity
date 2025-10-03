@@ -100,6 +100,19 @@
       </div>
     </div>
   {% endfor %}
+
+
+  <div class="card mb-3 border-warning">
+  <div class="card-header bg-warning">
+    <h5 class="mb-0">Quick Alert</h5>
+  </div>
+  <div class="card-body">
+    <p class="mb-2">Check houses with pending payments:</p>
+    <a href="{{ url_for('defaulters') }}" class="btn btn-warning btn-sm">
+      View Pending payment Report
+    </a>
+  </div>
+</div>
 </div>
 
 {% endblock %}

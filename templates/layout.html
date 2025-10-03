@@ -71,6 +71,7 @@
           <!-- Primary links (always visible) -->
           <nav class="nav mr-3 d-none d-sm-flex">
             <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Home</a>
+            <a class="nav-link {% if request.endpoint == 'defaulters' %}active{% endif %}" href="{{ url_for('defaulters') }}">Pending Payments</a>
             <a class="nav-link {% if request.endpoint == 'expenditure' %}active{% endif %}" href="{{ url_for('expenditure') }}">Expenditures</a>
             <a class="nav-link {% if request.endpoint == 'photo_page' %}active{% endif %}" 
    href="{{ url_for('photo_page') }}">Modern City</a>

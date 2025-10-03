@@ -1101,6 +1101,154 @@ def daily_backup_job():
 
 # ------------------- END: APPENDED code -------------------
 
+
+@app.route('/defaulters')
+@login_required
+def defaulters():
+    """
+    Shows houses that haven't paid maintenance for current and previous months.
+    A house is considered a defaulter if amount is NULL or 0 for any tracked month.
+    """
+    db = get_db()
+    
+    # Get current month in YYYY-MM format (Asia/Kolkata timezone)
+    now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
+    current_month_key = now_kolkata.strftime('%Y-%m')
+    
+    # Find the index of current month in MONTHS list
+    current_month_index = None
+    for idx, (_, db_key, _) in enumerate(MONTHS):
+        if db_key == current_month_key:
+            current_month_index = idx
+            break
+    
+    # If current month not in our MONTHS list, default to showing all months
+    if current_month_index is None:
+        months_to_check = MONTHS
+    else:
+        # Include current month and all previous months in the list
+        months_to_check = MONTHS[:current_month_index + 1]
+    
+    # Dictionary to store defaulters by month
+    defaulters_by_month = {}
+    summary = {}  # Summary stats for each month
+    
+    for display_key, db_key, label in months_to_check:
+        # Query houses where amount is NULL or 0 for this month
+        cur = db.execute('''
+            SELECT house_number, date_paid, amount 
+            FROM records 
+            WHERE month = ? AND (amount IS NULL OR amount = 0)
+            ORDER BY house_number
+        ''', (db_key,))
+        
+        defaulter_list = cur.fetchall()
+        defaulters_by_month[label] = defaulter_list
+        
+        # Calculate summary: total houses that paid vs didn't pay
+        paid_cur = db.execute('''
+            SELECT COUNT(*) as count 
+            FROM records 
+            WHERE month = ? AND amount IS NOT NULL AND amount > 0
+        ''', (db_key,))
+        paid_count = paid_cur.fetchone()['count']
+        
+        defaulter_count = len(defaulter_list)
+        total_expected = paid_count + defaulter_count
+        
+        summary[label] = {
+            'paid': paid_count,
+            'defaulters': defaulter_count,
+            'total': total_expected,
+            'db_key': db_key
+        }
+    
+    return render_template('defaulters.html',
+                         defaulters_by_month=defaulters_by_month,
+                         summary=summary,
+                         current_month=current_month_key)
+
+@app.route('/defaulters/export')
+@login_required
+def export_defaulters():
+    """
+    Export defaulters list to CSV.
+    Optional query param: ?month=YYYY-MM (exports single month)
+    Without param, exports all current and previous months
+    """
+    db = get_db()
+    
+    # Get current month in YYYY-MM format
+    now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
+    current_month_key = now_kolkata.strftime('%Y-%m')
+    
+    # Check if specific month requested
+    month_filter = request.args.get('month')
+    
+    if month_filter:
+        # Export single month
+        cur = db.execute('''
+            SELECT house_number, month, date_paid, amount 
+            FROM records 
+            WHERE month = ? AND (amount IS NULL OR amount = 0)
+            ORDER BY house_number
+        ''', (month_filter,))
+        rows = cur.fetchall()
+        
+        # Find month label
+        month_label = month_filter
+        for _, db_key, label in MONTHS:
+            if db_key == month_filter:
+                month_label = label.replace(' ', '_')
+                break
+        
+        filename = f"defaulters_{month_label}.csv"
+    else:
+        # Export all months up to current
+        current_month_index = None
+        for idx, (_, db_key, _) in enumerate(MONTHS):
+            if db_key == current_month_key:
+                current_month_index = idx
+                break
+        
+        if current_month_index is None:
+            months_to_check = MONTHS
+        else:
+            months_to_check = MONTHS[:current_month_index + 1]
+        
+        # Collect all defaulters from all months
+        all_rows = []
+        for _, db_key, _ in months_to_check:
+            cur = db.execute('''
+                SELECT house_number, month, date_paid, amount 
+                FROM records 
+                WHERE month = ? AND (amount IS NULL OR amount = 0)
+                ORDER BY house_number
+            ''', (db_key,))
+            all_rows.extend(cur.fetchall())
+        
+        rows = all_rows
+        filename = f"defaulters_all_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    # Generate CSV
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['House Number', 'Month', 'Date Paid', 'Amount', 'Status'])
+    
+    for r in rows:
+        status = 'Not Paid' if (r['amount'] is None or r['amount'] == 0) else 'Paid'
+        cw.writerow([
+            r['house_number'],
+            r['month'],
+            r['date_paid'] if r['date_paid'] else '',
+            r['amount'] if r['amount'] is not None else '',
+            status
+        ])
+    
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv', 
+                   headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
 # ----------------------
 # Run
 # ----------------------
