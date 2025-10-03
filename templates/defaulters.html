@@ -3,6 +3,8 @@
 {% block content %}
 <div class="row">
   <div class="col-12">
+
+    <!-- Card: Header + Filters -->
     <div class="card mb-3">
       <div class="card-header bg-danger text-white">
         <div class="d-flex justify-content-between align-items-center flex-wrap">
@@ -11,91 +13,210 @@
             <small>Houses with unpaid maintenance for current and previous months</small>
           </div>
           <div class="mt-2 mt-md-0">
-            <a href="{{ url_for('export_defaulters') }}" class="btn btn-light btn-sm">
-              <strong>Export All Months (CSV)</strong>
+            <a href="{{ url_for('export_defaulters') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-light btn-sm">
+              <strong>Export CSV (respect filters)</strong>
             </a>
           </div>
         </div>
       </div>
-      <div class="card-body">
-        <p class="text-muted mb-0">
-          This report shows all houses where payment amount is missing or zero for tracked months.
-          Use this list to follow up with residents about pending payments.
-        </p>
-      </div>
-    </div>
 
-    {% if not defaulters_by_month %}
-      <div class="alert alert-info">
-        No data available for the selected months.
-      </div>
-    {% else %}
-      {% for month_label, defaulter_list in defaulters_by_month.items() %}
-        <div class="card mb-4">
-          <div class="card-header {% if defaulter_list|length == 0 %}bg-success text-white{% else %}bg-warning{% endif %}">
-            <div class="d-flex justify-content-between align-items-center flex-wrap">
-              <h5 class="mb-0">{{ month_label }}</h5>
-              <div class="d-flex align-items-center flex-wrap mt-2 mt-md-0">
-                <div class="mr-3">
-                  <span class="badge badge-light">
-                    Paid: {{ summary[month_label]['paid'] }}
-                  </span>
-                  <span class="badge {% if defaulter_list|length == 0 %}badge-success{% else %}badge-danger{% endif %}">
-                    Unpaid: {{ summary[month_label]['defaulters'] }}
-                  </span>
-                  <span class="badge badge-info">
-                    Total: {{ summary[month_label]['total'] }}
-                  </span>
+      <div class="card-body">
+        <p class="text-muted mb-2">
+          This report shows houses where payment amount is missing or zero. Use the filters below to narrow results.
+        </p>
+
+        <!-- Filters form (GET) using custom dropdown multi-select -->
+        <form method="get" action="{{ url_for('defaulters') }}" class="mb-3" id="filters-form">
+          <div class="form-row align-items-center">
+            <div class="col-12 col-md-8">
+              <label class="mb-1"><strong>Months (select one or more)</strong></label>
+              
+              <!-- Custom Multi-Select Dropdown -->
+              <div class="dropdown-multiselect">
+                <button type="button" class="form-control text-left dropdown-toggle-custom" id="monthsDropdown">
+                  <span id="selectedMonthsText">Select months...</span>
+                  <span class="float-right dropdown-arrow" id="dropdownArrow">▼</span>
+                </button>
+                <div class="dropdown-menu-custom" id="monthsDropdownMenu" role="menu" aria-labelledby="monthsDropdown">
+                  <div class="dropdown-search">
+                    <input type="text" class="form-control form-control-sm" placeholder="Search months..." id="monthSearch" aria-label="Search months">
+                  </div>
+                  <div class="dropdown-options" id="dropdownOptions">
+                    {% for db_key, label in month_options %}
+                      <label class="dropdown-item-custom">
+                        <input type="checkbox" name="months" value="{{ db_key }}" 
+                          {% if db_key in request.args.getlist('months') %}checked{% endif %}
+                          class="month-checkbox">
+                        <span>{{ label }}</span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                  <div class="dropdown-actions">
+                    <div>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllMonths">Select All</button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="clearAllMonths">Clear All</button>
+                    </div>
+                    <!-- Done button closes the dropdown; does NOT submit the form -->
+                    <div>
+                      <button type="button" class="btn btn-sm btn-primary" id="doneMonths">Done</button>
+                    </div>
+                  </div>
                 </div>
-                {% if defaulter_list|length > 0 %}
-                  <a href="{{ url_for('export_defaulters', month=summary[month_label]['db_key']) }}" 
-                     class="btn btn-sm btn-dark mt-2 mt-sm-0">
-                    Export Month CSV
-                  </a>
-                {% endif %}
+              </div>
+              
+              <small class="form-text text-muted mt-1">Click the arrow to select/deselect multiple months.</small>
+            </div>
+
+            <div class="col-12 col-md-4 mt-2 mt-md-0">
+              <label class="mb-1"><strong>Other</strong></label>
+              <div>
+                <label class="mr-3">
+                  <input type="checkbox" name="no_paid_single_time" value="1"
+                    {% if request.args.get('no_paid_single_time') %}checked{% endif %}>
+                  No paid single time (never paid any month)
+                </label>
               </div>
             </div>
           </div>
 
-          <div class="card-body">
-            {% if defaulter_list|length == 0 %}
-              <div class="alert alert-success mb-0">
-                <strong>All houses have paid for this month!</strong>
-              </div>
-            {% else %}
-              <div class="row">
-                {% for record in defaulter_list %}
-                  <div class="col-4 col-sm-3 col-md-2 col-lg-1 mb-2">
-                    <div class="card bg-danger text-white text-center house-card">
-                      <div class="card-body p-1">
-                        <div class="house-number">#{{ record['house_number'] }}</div>
-                      </div>
-                    </div>
-                  </div>
-                {% endfor %}
-              </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-sm">Apply filter</button>
+            <a href="{{ url_for('defaulters') }}" class="btn btn-outline-secondary btn-sm ml-2">Clear filters</a>
+            <a href="{{ url_for('export_defaulters') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-dark btn-sm ml-2">Export CSV</a>
+          </div>
+        </form>
+      </div>
+    </div>
 
-              <!-- Summary section -->
-              <div class="mt-3 pt-3 border-top">
-                <p class="mb-2">
-                  <strong>Total Pending:</strong> {{ defaulter_list|length }} houses
-                </p>
-                <details>
-                  <summary class="text-primary" style="cursor: pointer;">View house numbers as comma-separated list</summary>
-                  <div class="mt-2 p-3 bg-light rounded">
-                    <code>
-                      {% for record in defaulter_list %}{{ record['house_number'] }}{% if not loop.last %}, {% endif %}{% endfor %}
-                    </code>
-                    <button class="btn btn-sm btn-secondary mt-2" onclick="copyToClipboard('{{ month_label }}')">
-                      Copy to Clipboard
-                    </button>
-                  </div>
-                </details>
-              </div>
-            {% endif %}
+    <!-- Main content: Three possible modes (no detail tables) -->
+    {% if mode == 'filtered_months' %}
+      <div class="card mb-4">
+        <div class="card-header bg-warning">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Houses missing payments for all selected months</h5>
+            <small class="text-muted">Selected: {{ selected_months | join(', ') }}</small>
           </div>
         </div>
-      {% endfor %}
+        <div class="card-body">
+          {% if defaulter_house_numbers %}
+            <p class="mb-2"><strong>Total houses:</strong> {{ defaulter_house_numbers|length }}</p>
+
+            <div class="row">
+              {% for hn in defaulter_house_numbers %}
+                <div class="col-4 col-sm-3 col-md-2 col-lg-1 mb-2">
+                  <div class="card bg-danger text-white text-center house-card">
+                    <div class="card-body p-1">
+                      <div class="house-number">#{{ hn }}</div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+            <!-- Compact comma-separated list + copy -->
+            <div class="mt-3 pt-3 border-top">
+              <div class="mt-2 p-3 bg-light rounded">
+                <code id="houses_list_filtered">{{ defaulter_house_numbers | join(', ') }}</code>
+                <br>
+                <button class="btn btn-sm btn-secondary mt-2" onclick="copyGeneric('houses_list_filtered')">Copy to Clipboard</button>
+              </div>
+            </div>
+
+          {% else %}
+            <div class="alert alert-info mb-0">No houses match the selected months.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    {% elif mode == 'never_paid' %}
+      <div class="card mb-4">
+        <div class="card-header bg-warning">
+          <h5 class="mb-0">Houses that never paid (across all months)</h5>
+        </div>
+        <div class="card-body">
+          <p class="mb-2"><strong>Total houses:</strong> {{ defaulter_house_numbers|length }}</p>
+
+          <div class="row">
+            {% for hn in defaulter_house_numbers %}
+              <div class="col-4 col-sm-3 col-md-2 col-lg-1 mb-2">
+                <div class="card bg-danger text-white text-center house-card">
+                  <div class="card-body p-1">
+                    <div class="house-number">#{{ hn }}</div>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="mt-3 pt-3 border-top">
+            <div class="mt-2 p-3 bg-light rounded">
+              <code id="houses_list_never">{{ defaulter_house_numbers | join(', ') }}</code>
+              <br>
+              <button class="btn btn-sm btn-secondary mt-2" onclick="copyGeneric('houses_list_never')">Copy to Clipboard</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    {% else %}
+      {# mode == 'overview' (original behaviour) #}
+      {% if not defaulters_by_month %}
+        <div class="alert alert-info">
+          No data available for the selected months.
+        </div>
+      {% else %}
+        {% for month_label, defaulter_list in defaulters_by_month.items() %}
+          <div class="card mb-4">
+            <div class="card-header {% if defaulter_list|length == 0 %}bg-success text-white{% else %}bg-warning{% endif %}">
+              <div class="d-flex justify-content-between align-items-center flex-wrap">
+                <h5 class="mb-0">{{ month_label }}</h5>
+                <div class="d-flex align-items-center flex-wrap mt-2 mt-md-0">
+                  <div class="mr-3">
+                    <span class="badge badge-light">Paid: {{ summary[month_label]['paid'] }}</span>
+                    <span class="badge {% if defaulter_list|length == 0 %}badge-success{% else %}badge-danger{% endif %}">Unpaid: {{ summary[month_label]['defaulters'] }}</span>
+                    <span class="badge badge-info">Total: {{ summary[month_label]['total'] }}</span>
+                  </div>
+                  {% if defaulter_list|length > 0 %}
+                    <a href="{{ url_for('export_defaulters', month=summary[month_label]['db_key']) }}" class="btn btn-sm btn-dark mt-2 mt-sm-0">
+                      Export Month CSV
+                    </a>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body">
+              {% if defaulter_list|length == 0 %}
+                <div class="alert alert-success mb-0">
+                  <strong>All houses have paid for this month!</strong>
+                </div>
+              {% else %}
+                <div class="row">
+                  {% for record in defaulter_list %}
+                    <div class="col-4 col-sm-3 col-md-2 col-lg-1 mb-2">
+                      <div class="card bg-danger text-white text-center house-card">
+                        <div class="card-body p-1">
+                          <div class="house-number">#{{ record['house_number'] }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+
+                <div class="mt-3 pt-3 border-top">
+                  <p class="mb-2"><strong>Total Pending:</strong> {{ defaulter_list|length }} houses</p>
+
+                  <div class="mt-2 p-3 bg-light rounded">
+                    <code id="houses_list_{{ loop.index0 }}">{{ defaulter_list | map(attribute='house_number') | join(', ') }}</code>
+                    <br>
+                    <button class="btn btn-sm btn-secondary mt-2" onclick="copyGeneric('houses_list_{{ loop.index0 }}')">Copy to Clipboard</button>
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
     {% endif %}
 
     <!-- Quick actions -->
@@ -113,66 +234,249 @@
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
 <style>
   /* Additional styles for defaulters page */
-  .badge {
-    padding: 0.5em 0.75em;
-    font-size: 0.9rem;
+  .badge { padding: 0.5em 0.75em; font-size: 0.9rem; }
+  .house-card { border-radius: 6px; transition: transform 0.2s; }
+  .house-card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+  .house-number { font-size: 0.9rem; font-weight: bold; }
+  
+  /* Custom Multi-Select Dropdown Styles */
+  .dropdown-multiselect {
+    position: relative;
   }
   
-  /* Smaller house cards */
-  .house-card {
-    border-radius: 6px;
-    transition: transform 0.2s;
+  .dropdown-toggle-custom {
+    background-color: white;
+    border: 1px solid #ced4da;
+    padding: 0.375rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   
-  .house-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  .dropdown-toggle-custom:hover {
+    background-color: #f8f9fa;
   }
   
-  .house-number {
-    font-size: 0.9rem;
-    font-weight: bold;
+  #selectedMonthsText {
+    flex: 1;
+    cursor: default;
+    pointer-events: none;
   }
   
-  details summary {
+  .dropdown-arrow {
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    margin: -0.375rem -0.75rem -0.375rem 0.5rem;
+    user-select: none;
+    transition: background-color 0.15s;
+  }
+  
+  .dropdown-arrow:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  
+  /* Hidden by default; shown when .show is added */
+  .dropdown-menu-custom {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    margin-top: 2px;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    max-height: 400px;
+    flex-direction: column;
+  }
+  
+  .dropdown-menu-custom.show {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .dropdown-search {
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+  }
+  
+  .dropdown-options {
+    overflow-y: auto;
+    max-height: 300px;
+    padding: 0.25rem 0;
+  }
+  
+  .dropdown-item-custom {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    margin: 0;
+    transition: background-color 0.15s;
+  }
+  
+  .dropdown-item-custom:hover {
+    background-color: #f8f9fa;
+  }
+  
+  .dropdown-item-custom input[type="checkbox"] {
+    margin-right: 0.5rem;
+    cursor: pointer;
+  }
+  
+  .dropdown-item-custom span {
     user-select: none;
   }
-  details[open] summary {
-    margin-bottom: 0.5rem;
+  
+  .dropdown-actions {
+    padding: 0.5rem;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   
   @media (max-width: 575.98px) {
-    .card-header h5 {
-      font-size: 1rem;
+    .card-header h5 { font-size: 1rem; }
+    .badge { font-size: 0.75rem; padding: 0.35em 0.5em; }
+    .house-number { font-size: 0.8rem; }
+    .dropdown-menu-custom {
+      max-height: 300px;
     }
-    .badge {
-      font-size: 0.75rem;
-      padding: 0.35em 0.5em;
-    }
-    .house-number {
-      font-size: 0.8rem;
+    .dropdown-options {
+      max-height: 200px;
     }
   }
 </style>
 
 <script>
-  function copyToClipboard(monthLabel) {
-    // Find the code element within the expanded details for this month
-    var details = event.target.closest('details');
-    var code = details.querySelector('code');
-    var text = code.textContent;
-    
-    // Copy to clipboard
+  // Custom Multi-Select Dropdown functionality
+  (function() {
+    const dropdown = document.getElementById('monthsDropdown');
+    const menu = document.getElementById('monthsDropdownMenu');
+    const checkboxes = document.querySelectorAll('.month-checkbox');
+    const selectedText = document.getElementById('selectedMonthsText');
+    const dropdownArrow = document.getElementById('dropdownArrow');
+    const searchInput = document.getElementById('monthSearch');
+    const selectAllBtn = document.getElementById('selectAllMonths');
+    const clearAllBtn = document.getElementById('clearAllMonths');
+    const doneBtn = document.getElementById('doneMonths');
+
+    // Toggle dropdown only when arrow is clicked
+    dropdownArrow.addEventListener('click', function(e) {
+      e.stopPropagation();
+      menu.classList.toggle('show');
+    });
+
+    // Prevent clicking the main text area from toggling the dropdown.
+    dropdown.addEventListener('click', function(e) {
+      // Intentionally left blank so only arrow toggles the menu.
+      // If you want whole button to toggle, replace this blank handler with:
+      // menu.classList.toggle('show');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!menu.contains(e.target) && !dropdown.contains(e.target)) {
+        menu.classList.remove('show');
+      }
+    });
+
+    // Prevent dropdown from closing when clicking inside
+    menu.addEventListener('click', function(e) {
+      e.stopPropagation();
+    });
+
+    // Close dropdown when Done button clicked
+    doneBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      menu.classList.remove('show');
+    });
+
+    // Update selected text
+    function updateSelectedText() {
+      const selected = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => {
+          // label text in the sibling span
+          const siblingSpan = cb.nextElementSibling;
+          return siblingSpan ? siblingSpan.textContent.trim() : cb.parentElement.textContent.trim();
+        });
+
+      if (selected.length === 0) {
+        selectedText.textContent = 'Select months...';
+      } else if (selected.length === 1) {
+        selectedText.textContent = selected[0];
+      } else if (selected.length <= 3) {
+        selectedText.textContent = selected.join(', ');
+      } else {
+        selectedText.textContent = `${selected.length} months selected`;
+      }
+    }
+
+    // Listen to checkbox changes
+    checkboxes.forEach(function(checkbox) {
+      checkbox.addEventListener('change', updateSelectedText);
+    });
+
+    // Search functionality
+    searchInput.addEventListener('input', function() {
+      const searchTerm = this.value.toLowerCase();
+      const items = document.querySelectorAll('.dropdown-item-custom');
+
+      items.forEach(function(item) {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    });
+
+    // Select all (only visible ones)
+    selectAllBtn.addEventListener('click', function() {
+      const visibleCheckboxes = Array.from(checkboxes).filter(cb =>
+        cb.parentElement.style.display !== 'none'
+      );
+      visibleCheckboxes.forEach(cb => cb.checked = true);
+      updateSelectedText();
+    });
+
+    // Clear all
+    clearAllBtn.addEventListener('click', function() {
+      checkboxes.forEach(cb => cb.checked = false);
+      updateSelectedText();
+    });
+
+    // Initialize on page load
+    updateSelectedText();
+  })();
+
+  // Helper: copy content of element with id to clipboard
+  function copyGeneric(elementId) {
+    var el = document.getElementById(elementId);
+    if (!el) {
+      alert('No data found to copy.');
+      return;
+    }
+    var text = el.textContent.trim();
+    if (!text) {
+      alert('No house numbers to copy.');
+      return;
+    }
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).then(function() {
         alert('House numbers copied to clipboard!');
       }, function(err) {
-        // Fallback for older browsers
         fallbackCopy(text);
       });
     } else {

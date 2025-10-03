@@ -276,15 +276,14 @@ def export_month(month_key):
     if not db_key:
         flash('Invalid month')
         return redirect(url_for('index'))
-
     db = get_db()
-    cur = db.execute('SELECT house_number, date_paid, amount FROM records WHERE month = ? ORDER BY house_number', (db_key,))
+    cur = db.execute('SELECT house_number, month, date_paid, amount FROM records WHERE month = ? ORDER BY house_number', (db_key,))
     rows = cur.fetchall()
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['House', 'Date Paid', 'Amount'])
+    cw.writerow(['House', 'Month', 'Date Paid', 'Amount'])
     for r in rows:
-        cw.writerow([r['house_number'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
+        cw.writerow([r['house_number'], r['month'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
     output = si.getvalue()
     filename = f"payments_{db_key}.csv"
     return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
@@ -1106,135 +1105,244 @@ def daily_backup_job():
 @login_required
 def defaulters():
     """
-    Shows houses that haven't paid maintenance for current and previous months.
-    A house is considered a defaulter if amount is NULL or 0 for any tracked month.
+    Shows defaulters. Supports optional GET filters:
+      - months: repeated param ?months=2025-08&months=2025-09 (multi-select)
+        -> returns houses that have NOT paid in ALL selected months (AND).
+      - no_paid_single_time: any value (checkbox); when set and months not provided,
+        -> returns houses that have never paid any month (sum of amounts == 0).
+    If no filters provided, behaves like before and lists defaulters per month up to current.
     """
     db = get_db()
-    
-    # Get current month in YYYY-MM format (Asia/Kolkata timezone)
+
+    # month options for form (db_key, label)
+    month_options = [(db_key, label) for _, db_key, label in MONTHS]
+
+    # read filters from query params (GET)
+    selected_months = request.args.getlist('months')  # e.g. ['2025-08','2025-09']
+    no_paid_single_time = request.args.get('no_paid_single_time')  # checkbox
+
+    # If months selected -> find houses missing for ALL selected months (AND)
+    if selected_months:
+        # Validate/filter selected_months to known db_keys
+        valid_months = [m for m in selected_months if any(m == db_key for _, db_key, _ in MONTHS)]
+        if not valid_months:
+            flash('No valid months selected')
+            return redirect(url_for('defaulters'))
+
+        # Build placeholders for IN clause
+        placeholders = ','.join(['?'] * len(valid_months))
+        # Houses that have a defaulter record for selected months; group & ensure they have entries for all months
+        query = f'''
+            SELECT house_number
+            FROM records
+            WHERE month IN ({placeholders}) AND (amount IS NULL OR amount = 0)
+            GROUP BY house_number
+            HAVING COUNT(DISTINCT month) = ?
+            ORDER BY house_number
+        '''
+        params = valid_months + [len(valid_months)]
+        cur = db.execute(query, params)
+        rows = cur.fetchall()
+        # Fetch detailed rows per house/month for display (optional)
+        house_numbers = [r['house_number'] for r in rows]
+        detailed = []
+        if house_numbers:
+            placeholders_h = ','.join(['?'] * len(house_numbers))
+            # Get the records for these houses limited to the selected months (for table)
+            q2 = f'''
+                SELECT house_number, month, date_paid, amount
+                FROM records
+                WHERE house_number IN ({placeholders_h}) AND month IN ({placeholders})
+                ORDER BY house_number, month
+            '''
+            params2 = house_numbers + valid_months
+            detailed = db.execute(q2, params2).fetchall()
+
+        return render_template('defaulters.html',
+                               mode='filtered_months',
+                               month_options=month_options,
+                               selected_months=valid_months,
+                               defaulter_house_numbers=house_numbers,
+                               detailed_records=detailed)
+
+    # If user asked for 'no_paid_single_time' (and no months selected)
+    if no_paid_single_time:
+        # Houses whose total payments across records sum to 0
+        # COALESCE(amount,0) ensures NULL treated as 0
+        cur = db.execute('''
+            SELECT house_number
+            FROM records
+            GROUP BY house_number
+            HAVING SUM(COALESCE(amount,0)) = 0
+            ORDER BY house_number
+        ''')
+        rows = cur.fetchall()
+        house_numbers = [r['house_number'] for r in rows]
+
+        # Optionally fetch all months' records for those houses for display
+        detailed = []
+        if house_numbers:
+            placeholders_h = ','.join(['?'] * len(house_numbers))
+            q2 = f'''
+                SELECT house_number, month, date_paid, amount
+                FROM records
+                WHERE house_number IN ({placeholders_h})
+                ORDER BY house_number, month
+            '''
+            detailed = db.execute(q2, house_numbers).fetchall()
+
+        return render_template('defaulters.html',
+                               mode='never_paid',
+                               month_options=month_options,
+                               defaulter_house_numbers=house_numbers,
+                               detailed_records=detailed)
+
+    # No filters → original behaviour: show defaulters per month up to current
     now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
     current_month_key = now_kolkata.strftime('%Y-%m')
-    
-    # Find the index of current month in MONTHS list
+
     current_month_index = None
     for idx, (_, db_key, _) in enumerate(MONTHS):
         if db_key == current_month_key:
             current_month_index = idx
             break
-    
-    # If current month not in our MONTHS list, default to showing all months
+
     if current_month_index is None:
         months_to_check = MONTHS
     else:
-        # Include current month and all previous months in the list
         months_to_check = MONTHS[:current_month_index + 1]
-    
-    # Dictionary to store defaulters by month
+
     defaulters_by_month = {}
-    summary = {}  # Summary stats for each month
-    
+    summary = {}
     for display_key, db_key, label in months_to_check:
-        # Query houses where amount is NULL or 0 for this month
         cur = db.execute('''
-            SELECT house_number, date_paid, amount 
-            FROM records 
+            SELECT house_number, date_paid, amount
+            FROM records
             WHERE month = ? AND (amount IS NULL OR amount = 0)
             ORDER BY house_number
         ''', (db_key,))
-        
         defaulter_list = cur.fetchall()
         defaulters_by_month[label] = defaulter_list
-        
-        # Calculate summary: total houses that paid vs didn't pay
+
         paid_cur = db.execute('''
-            SELECT COUNT(*) as count 
-            FROM records 
+            SELECT COUNT(*) as count
+            FROM records
             WHERE month = ? AND amount IS NOT NULL AND amount > 0
         ''', (db_key,))
         paid_count = paid_cur.fetchone()['count']
-        
         defaulter_count = len(defaulter_list)
         total_expected = paid_count + defaulter_count
-        
         summary[label] = {
             'paid': paid_count,
             'defaulters': defaulter_count,
             'total': total_expected,
             'db_key': db_key
         }
-    
+
     return render_template('defaulters.html',
-                         defaulters_by_month=defaulters_by_month,
-                         summary=summary,
-                         current_month=current_month_key)
+                           mode='overview',
+                           month_options=month_options,
+                           defaulters_by_month=defaulters_by_month,
+                           summary=summary,
+                           current_month=current_month_key)
+
 
 @app.route('/defaulters/export')
 @login_required
 def export_defaulters():
     """
-    Export defaulters list to CSV.
-    Optional query param: ?month=YYYY-MM (exports single month)
-    Without param, exports all current and previous months
+    Export defaulters to CSV with same filter semantics:
+      - ?months=2025-08&months=2025-09  -> export houses missing in ALL selected months
+      - ?no_paid_single_time=1 -> export houses that never paid
+      - otherwise export all months up to current (existing behavior)
     """
     db = get_db()
-    
-    # Get current month in YYYY-MM format
-    now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
-    current_month_key = now_kolkata.strftime('%Y-%m')
-    
-    # Check if specific month requested
-    month_filter = request.args.get('month')
-    
-    if month_filter:
-        # Export single month
-        cur = db.execute('''
-            SELECT house_number, month, date_paid, amount 
-            FROM records 
-            WHERE month = ? AND (amount IS NULL OR amount = 0)
+
+    selected_months = request.args.getlist('months')
+    no_paid_single_time = request.args.get('no_paid_single_time')
+
+    rows = []
+    filename = None
+
+    if selected_months:
+        valid_months = [m for m in selected_months if any(m == db_key for _, db_key, _ in MONTHS)]
+        if not valid_months:
+            flash('No valid months selected for export')
+            return redirect(url_for('defaulters'))
+        placeholders = ','.join(['?'] * len(valid_months))
+        query = f'''
+            SELECT house_number
+            FROM records
+            WHERE month IN ({placeholders}) AND (amount IS NULL OR amount = 0)
+            GROUP BY house_number
+            HAVING COUNT(DISTINCT month) = ?
             ORDER BY house_number
-        ''', (month_filter,))
-        rows = cur.fetchall()
-        
-        # Find month label
-        month_label = month_filter
-        for _, db_key, label in MONTHS:
-            if db_key == month_filter:
-                month_label = label.replace(' ', '_')
-                break
-        
-        filename = f"defaulters_{month_label}.csv"
+        '''
+        params = valid_months + [len(valid_months)]
+        rows_simple = db.execute(query, params).fetchall()
+        house_numbers = [r['house_number'] for r in rows_simple]
+        # fetch details for CSV
+        if house_numbers:
+            ph = ','.join(['?'] * len(house_numbers))
+            q2 = f'''
+                SELECT house_number, month, date_paid, amount
+                FROM records
+                WHERE house_number IN ({ph}) AND month IN ({placeholders})
+                ORDER BY house_number, month
+            '''
+            rows = db.execute(q2, house_numbers + valid_months).fetchall()
+        filename = f"defaulters_selected_months_{datetime.now().strftime('%Y%m%d')}.csv"
+
+    elif no_paid_single_time:
+        rows_simple = db.execute('''
+            SELECT house_number
+            FROM records
+            GROUP BY house_number
+            HAVING SUM(COALESCE(amount,0)) = 0
+            ORDER BY house_number
+        ''').fetchall()
+        house_numbers = [r['house_number'] for r in rows_simple]
+        if house_numbers:
+            ph = ','.join(['?'] * len(house_numbers))
+            q2 = f'''
+                SELECT house_number, month, date_paid, amount
+                FROM records
+                WHERE house_number IN ({ph})
+                ORDER BY house_number, month
+            '''
+            rows = db.execute(q2, house_numbers).fetchall()
+        filename = f"defaulters_never_paid_{datetime.now().strftime('%Y%m%d')}.csv"
+
     else:
-        # Export all months up to current
+        # original "all months up to current" export
+        now_kolkata = datetime.now(ZoneInfo("Asia/Kolkata"))
+        current_month_key = now_kolkata.strftime('%Y-%m')
         current_month_index = None
         for idx, (_, db_key, _) in enumerate(MONTHS):
             if db_key == current_month_key:
                 current_month_index = idx
                 break
-        
         if current_month_index is None:
             months_to_check = MONTHS
         else:
             months_to_check = MONTHS[:current_month_index + 1]
-        
-        # Collect all defaulters from all months
+
         all_rows = []
         for _, db_key, _ in months_to_check:
             cur = db.execute('''
-                SELECT house_number, month, date_paid, amount 
-                FROM records 
+                SELECT house_number, month, date_paid, amount
+                FROM records
                 WHERE month = ? AND (amount IS NULL OR amount = 0)
                 ORDER BY house_number
             ''', (db_key,))
             all_rows.extend(cur.fetchall())
-        
         rows = all_rows
         filename = f"defaulters_all_{datetime.now().strftime('%Y%m%d')}.csv"
-    
-    # Generate CSV
+
+    # Build CSV
     si = io.StringIO()
     cw = csv.writer(si)
     cw.writerow(['House Number', 'Month', 'Date Paid', 'Amount', 'Status'])
-    
     for r in rows:
         status = 'Not Paid' if (r['amount'] is None or r['amount'] == 0) else 'Paid'
         cw.writerow([
@@ -1244,10 +1352,13 @@ def export_defaulters():
             r['amount'] if r['amount'] is not None else '',
             status
         ])
-    
     output = si.getvalue()
-    return Response(output, mimetype='text/csv', 
-                   headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+    return Response(output, mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+
+
+
 
 # ----------------------
 # Run
