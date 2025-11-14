@@ -24,10 +24,12 @@ def init_db_once():
     )
     ''')
     conn.commit()
+    '''
     for mkey, _ in MONTHS:
         for house in range(1, TOTAL_HOUSES+1):
             c.execute('INSERT INTO records (house_number, month, date_paid, amount) VALUES (?, ?, ?, ?)', (house, mkey, None, None))
     conn.commit()
+    '''
     conn.close()
     print("Database created and seeded.")
 """
