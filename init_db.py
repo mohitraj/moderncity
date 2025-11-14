@@ -8,17 +8,20 @@ TOTAL_HOUSES = 60
 def init_db_once():
     if os.path.exists(DB_PATH):
         print("Database already exists.")
-        return
+        #return
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
-        CREATE TABLE records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            house_number INTEGER NOT NULL,
-            month TEXT NOT NULL,
-            date_paid TEXT,
-            amount INTEGER
-        )
+    CREATE TABLE IF NOT EXISTS additions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    month TEXT NOT NULL,
+    date TEXT,
+    amount INTEGER NOT NULL,
+    type TEXT,
+    reason TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+    )
     ''')
     conn.commit()
     for mkey, _ in MONTHS:
@@ -27,7 +30,7 @@ def init_db_once():
     conn.commit()
     conn.close()
     print("Database created and seeded.")
-
+"""
 def expend():
     #import sqlite3
     #DB_PATH = 'maintenance.db'
@@ -51,10 +54,10 @@ def expend():
     conn.commit()
     conn.close()
     print("Patched DB with users and expenditures tables.")
-
+"""
 def main():
     init_db_once()
     expend()
 if __name__ == '__main__':
     init_db_once()
-    expend()
+

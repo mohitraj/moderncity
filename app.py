@@ -31,9 +31,10 @@ ROLES = [
     ('admin', 'Admin (full access, can manage users)'),
     ('maintenance', 'Maintenance (can add maintenance records only)'),
     ('expenditure', 'Expenditure (can add expenditure records only)'),
-    ('maintenance_expenditure', 'Maintenance + Expenditure (can add maintenance and expenditure)')
+    ('maintenance_expenditure', 'Maintenance + Expenditure (can add maintenance and expenditure)'),
+    ('addition', 'Addition (can add addition records only)'),  # ADD THIS
+    ('maintenance_addition', 'Maintenance + Addition (can add maintenance and addition)')  # ADD THIS
 ]
-
 app = Flask(__name__, template_folder='templates')
 app.secret_key = APP_SECRET
 
@@ -139,6 +140,7 @@ def index():
     records = {}
     totals = {}
     expenditures_total = {}
+    additions_total = {}  # ADD THIS
 
     month_mapping = {}
     for display_key, db_key, label in MONTHS:
@@ -155,13 +157,20 @@ def index():
         exp_sum = exp_cur.fetchone()['s'] or 0
         expenditures_total[display_key] = int(exp_sum)
 
-        totals[display_key] = int(payments_sum) - int(exp_sum)
+        # ADD THESE 3 LINES
+        add_cur = db.execute('SELECT SUM(amount) as s FROM additions WHERE month = ?', (db_key,))
+        add_sum = add_cur.fetchone()['s'] or 0
+        additions_total[display_key] = int(add_sum)
+
+        # UPDATE THIS LINE
+        totals[display_key] = int(payments_sum) - int(exp_sum) + int(add_sum)
 
     return render_template('index.html',
                            months=[(k, label) for k, _, label in MONTHS],
                            records=records,
                            totals=totals,
                            expenditures_total=expenditures_total,
+                           additions_total=additions_total,  # ADD THIS
                            month_mapping=month_mapping)
 
 @app.route('/login', methods=['GET','POST'])
@@ -852,13 +861,13 @@ def send_email_with_attachments(smtp_host, smtp_port, username, password, sender
 
 # CSV generators (reuse same queries as your export routes)
 def _generate_payments_csv_string_for_month(db, month_db_key):
-    cur = db.execute('SELECT house_number, date_paid, amount FROM records WHERE month = ? ORDER BY house_number', (month_db_key,))
+    cur = db.execute('SELECT house_number,month, date_paid, amount FROM records WHERE month = ? ORDER BY house_number', (month_db_key,))
     rows = cur.fetchall()
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['House', 'Date Paid', 'Amount'])
+    cw.writerow(['House','Month', 'Date Paid', 'Amount'])
     for r in rows:
-        cw.writerow([r['house_number'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
+        cw.writerow([r['house_number'], r['month'], r['date_paid'] if r['date_paid'] is not None else '', r['amount'] if r['amount'] is not None else ''])
     return f"payments_{month_db_key}.csv", si.getvalue()
 
 def _generate_payments_csv_string_for_year(db, year):
@@ -1038,7 +1047,7 @@ def send_backup():
 
 # The scheduled job. It uses the same CSV generators + send_email_with_attachments helpers
 # It runs within an app context so get_db() and get_extra_db() work.
-@scheduler.task('cron', id='daily_backup_job', hour=23, minute=55)
+@scheduler.task('cron', id='daily_backup_job', hour=18, minute=20)
 def daily_backup_job():
     try:
         with app.app_context():
@@ -1102,7 +1111,6 @@ def daily_backup_job():
 
 
 @app.route('/defaulters')
-@login_required
 def defaulters():
     """
     Shows defaulters. Supports optional GET filters:
@@ -1358,7 +1366,96 @@ def export_defaulters():
 
 
 
+# ----------------------
+# Addition routes
+# - Viewable by anyone
+# - Only admin or addition role (or builtin admin) can POST (add)
+# - Deleting is admin-only
+# ----------------------
+@app.route('/addition', methods=['GET','POST'])
+def addition():
+    db = get_db()
 
+    # POST (create) -> restrict to admin/addition
+    if request.method == 'POST':
+        if not (is_builtin_admin() or session.get('role') in ('admin', 'addition', 'maintenance_addition')):
+            flash('You do not have permission to add additions. Please log in with an account that has the necessary role.')
+            return redirect(url_for('login'))
+
+        month = request.form.get('month')  # database key like '2025-08'
+        date = request.form.get('date') or None
+        amount = request.form.get('amount') or '0'
+        add_type = request.form.get('type')
+        reason = request.form.get('reason') or ''
+        try:
+            amount = int(amount)
+        except Exception:
+            flash('Invalid amount')
+            return redirect(url_for('addition'))
+
+        created_by = session.get('username') or 'unknown'
+        db.execute('INSERT INTO additions (month, date, amount, type, reason, created_by) VALUES (?,?,?,?,?,?)',
+                   (month, date, amount, add_type, reason, created_by))
+        db.commit()
+        flash('Addition recorded')
+        return redirect(url_for('addition'))
+
+    # GET -> support optional month filter via query param ?month=YYYY-MM
+    selected_month = request.args.get('month')  # e.g. '2025-08' or None for all
+    if selected_month:
+        cur = db.execute('SELECT * FROM additions WHERE month = ? ORDER BY date DESC, id DESC', (selected_month,))
+    else:
+        cur = db.execute('SELECT * FROM additions ORDER BY month DESC, date DESC, id DESC')
+    add_rows = cur.fetchall()
+    #for row in add_rows:
+    #    print(dict(row))
+
+    # month options for filter / form
+    month_options = [(db_key, label) for _, db_key, label in MONTHS]
+    return render_template('addition.html',
+                           Additions=add_rows,
+                           months=month_options,
+                           selected_month=selected_month)
+
+@app.route('/addition/export')
+def export_Additions():
+    """
+    Export additions to CSV. Optional query param: ?month=YYYY-MM
+    If month is provided, only that month's additions are exported; otherwise all.
+    """
+    db = get_db()
+    month = request.args.get('month')
+    if month:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM additions WHERE month = ? ORDER BY date DESC, id DESC', (month,))
+        filename = f"additions_{month}.csv"
+    else:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM additions ORDER BY month DESC, date DESC, id DESC')
+        filename = "additions_all.csv"
+
+    rows = cur.fetchall()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Month', 'Date', 'Amount', 'Type', 'Reason', 'Created By'])
+    for r in rows:
+        cw.writerow([
+            r['month'],
+            r['date'] if r['date'] else '',
+            r['amount'] if r['amount'] is not None else '',
+            r['type'] or '',
+            r['reason'] or '',
+            r['created_by'] or ''
+        ])
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
+
+@app.route('/addition/delete/<int:add_id>')
+@require_roles('admin')
+def delete_addition(add_id):
+    db = get_db()
+    db.execute('DELETE FROM additions WHERE id = ?', (add_id,))
+    db.commit()
+    flash('Addition deleted')
+    return redirect(url_for('addition'))
 
 # ----------------------
 # Run

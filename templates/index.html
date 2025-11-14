@@ -39,6 +39,7 @@
           {% if session.get('role') %}
             <a href="{{ url_for('add') }}" class="btn btn-sm btn-success mr-2 mb-2 small-action-btn">Add Payment</a>
             <a href="{{ url_for('expenditure') }}" class="btn btn-sm btn-warning mr-2 mb-2 small-action-btn">Expenditure</a>
+            <a href="{{ url_for('addition') }}" class="btn btn-sm btn-info mr-2 mb-2 small-action-btn">Addition</a>
           {% endif %}
           <a href="{{ url_for('export_month', month_key=key) }}" class="btn btn-sm btn-outline-info ml-0 ml-md-2 mb-2 small-action-btn">Export CSV</a>
         </div>
@@ -77,22 +78,32 @@
             {% endif %}
           </tbody>
           <tfoot>
-            <tr>
-              <th class="text-right">Payments Total</th>
-              <th colspan="1">{{ ( (totals[key] + expenditures_total[key]) if expenditures_total is defined else totals[key]) + (0) if false else ( ( ( (totals[key] + expenditures_total[key]) if expenditures_total is defined else totals[key]) ) ) }}</th>
+            <tr class="table-info">
+              <th class="text-right" colspan="2">Maintenance Total (Payments)</th>
+              <th>{{ (totals[key] + expenditures_total[key] - (additions_total[key] if additions_total is defined else 0)) if expenditures_total is defined else totals[key] }}</th>
               {% if session.get('role') %}
-                <th class="text-right">Expenditure Total</th>
-                <th>{{ expenditures_total[key] if expenditures_total is defined else '-' }}</th>
-              {% else %}
-                <th class="text-right">Expenditure Total</th>
-                <th>{{ expenditures_total[key] if expenditures_total is defined else '-' }}</th>
+                <th></th>
               {% endif %}
             </tr>
-            <tr>
-              <th class="text-right">Net Total</th>
-              <th colspan="{{ 1 }}">{{ totals[key] }}</th>
+            <tr class="table-success">
+              <th class="text-right" colspan="2">Addition Total</th>
+              <th>{{ additions_total[key] if additions_total is defined else 0 }}</th>
               {% if session.get('role') %}
-                <th colspan="2"></th>
+                <th></th>
+              {% endif %}
+            </tr>
+            <tr class="table-warning">
+              <th class="text-right" colspan="2">Expenditure Total</th>
+              <th>{{ expenditures_total[key] if expenditures_total is defined else 0 }}</th>
+              {% if session.get('role') %}
+                <th></th>
+              {% endif %}
+            </tr>
+            <tr class="table-primary">
+              <th class="text-right" colspan="2"><strong>Net Total (Maintenance + Addition - Expenditure)</strong></th>
+              <th><strong>{{ totals[key] }}</strong></th>
+              {% if session.get('role') %}
+                <th></th>
               {% endif %}
             </tr>
           </tfoot>
@@ -101,18 +112,17 @@
     </div>
   {% endfor %}
 
-
   <div class="card mb-3 border-warning">
-  <div class="card-header bg-warning">
-    <h5 class="mb-0">Quick Alert</h5>
+    <div class="card-header bg-warning">
+      <h5 class="mb-0">Quick Alert</h5>
+    </div>
+    <div class="card-body">
+      <p class="mb-2">Check houses with pending payments:</p>
+      <a href="{{ url_for('defaulters') }}" class="btn btn-warning btn-sm">
+        View Pending Payment Report
+      </a>
+    </div>
   </div>
-  <div class="card-body">
-    <p class="mb-2">Check houses with pending payments:</p>
-    <a href="{{ url_for('defaulters') }}" class="btn btn-warning btn-sm">
-      View Pending payment Report
-    </a>
-  </div>
-</div>
 </div>
 
 {% endblock %}

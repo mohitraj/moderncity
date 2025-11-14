@@ -363,6 +363,7 @@
           <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Home</a>
           <a class="nav-link {% if request.endpoint == 'defaulters' %}active{% endif %}" href="{{ url_for('defaulters') }}">Pending Payments</a>
           <a class="nav-link {% if request.endpoint == 'expenditure' %}active{% endif %}" href="{{ url_for('expenditure') }}">Expenditures</a>
+          <a class="nav-link {% if request.endpoint == 'addition' %}active{% endif %}" href="{{ url_for('addition') }}">Addition</a>
           <a class="nav-link {% if request.endpoint == 'photo_page' %}active{% endif %}" href="{{ url_for('photo_page') }}">Modern City</a>
 
           {% if session.get('role') in ['admin','maintenance'] or session.get('username') == 'admin' %}
@@ -393,6 +394,7 @@
             <li><a class="{% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Home</a></li>
             <li><a class="{% if request.endpoint == 'defaulters' %}active{% endif %}" href="{{ url_for('defaulters') }}">Pending Payments</a></li>
             <li><a class="{% if request.endpoint == 'expenditure' %}active{% endif %}" href="{{ url_for('expenditure') }}">Expenditures</a></li>
+            <li><a class="{% if request.endpoint == 'addition' %}active{% endif %}" href="{{ url_for('addition') }}">Additions</a></li>
             <li><a class="{% if request.endpoint == 'photo_page' %}active{% endif %}" href="{{ url_for('photo_page') }}">Modern City</a></li>
 
             {% if session.get('role') in ['admin','maintenance'] or session.get('username') == 'admin' %}
