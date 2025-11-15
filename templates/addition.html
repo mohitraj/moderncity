@@ -68,22 +68,12 @@
       </div>
 
       <div class="form-group col-md-3">
-        <label class="sr-only">Type</label>
-        <select name="type" id="expTypeSelect" class="form-control form-control-sm">
-          <option value="Water Bill">Water Bill</option>
-          <option value="Electricity Bill">Electricity Bill</option>
-          <option value="Safaiwala">Safaiwala</option>
-          <option value="Other">Other (type below)</option>
-        </select>
-      </div>
-
-      <div class="form-group col-md-12 mt-2" id="otherTypeWrapper" style="display:none;">
-        <input name="type_other" id="typeOtherInput" class="form-control form-control-sm" placeholder="Specify other type (e.g., Tools, Materials)">
-        <small class="text-muted">If you selected "Other", enter the custom type here. Otherwise leave blank.</small>
+        <label class="sr-only">Name</label>
+        <input name="type" class="form-control form-control-sm" placeholder="Name" required>
       </div>
 
       <div class="form-group col-md-12 mt-2">
-        <input name="reason" class="form-control form-control-sm" placeholder="Reason / Notes">
+        <input name="reason" class="form-control form-control-sm" placeholder="Bill number">
       </div>
 
       <div class="form-group col-md-12 text-right mt-2">
@@ -94,52 +84,9 @@
 </div>
 
 <script>
-  // Toggle the "Other" input when user selects Other
+  // Form submission handling (simplified since no dropdown anymore)
   document.addEventListener('DOMContentLoaded', function() {
-    var typeSelect = document.getElementById('expTypeSelect');
-    var otherWrapper = document.getElementById('otherTypeWrapper');
-    var otherInput = document.getElementById('typeOtherInput');
-    var addForm = document.getElementById('addExpenditureForm');
-
-    function toggleOther() {
-      if(!typeSelect) return;
-      if (typeSelect.value === 'Other') {
-        otherWrapper.style.display = 'block';
-        otherInput.required = true;
-      } else {
-        otherWrapper.style.display = 'none';
-        otherInput.required = false;
-        otherInput.value = '';
-      }
-    }
-
-    // Initialize visibility
-    toggleOther();
-
-    if (typeSelect) {
-      typeSelect.addEventListener('change', toggleOther);
-    }
-
-    // On submit, if Other is used, set the value of a hidden field 'type' to the typed value
-    addForm.addEventListener('submit', function(e){
-      // make sure 'type' parameter sent to server has custom value if Other chosen
-      if (typeSelect.value === 'Other') {
-        // create/replace a hidden input named 'type' with otherInput's value
-        var existing = document.querySelector('input[name="type"][type="hidden"]');
-        if (existing) existing.parentNode.removeChild(existing);
-        var hidden = document.createElement('input');
-        hidden.type = 'hidden';
-        hidden.name = 'type';
-        hidden.value = otherInput.value || 'Other';
-        addForm.appendChild(hidden);
-        // also remove the select's name so it doesn't override (optional)
-        typeSelect.removeAttribute('name');
-      }
-      // If not Other, ensure select has name 'type' (in case it was removed previously)
-      else {
-        if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name','type');
-      }
-    });
+    // No special handling needed - form submits directly
   });
 </script>
 
@@ -160,8 +107,8 @@
           <th>Month</th>
           <th>Date</th>
           <th>Amount</th>
-          <th>Type</th>
-          <th>Reason</th>
+          <th>Name</th>
+          <th>Bill Number</th>
           <th>Created By</th>
           <th>Action</th>
         </tr>
