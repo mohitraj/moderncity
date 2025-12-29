@@ -16,12 +16,27 @@ ADMIN_USER = 'admin'
 ADMIN_PASS = 'Mo980616'
 DB_PATH = 'maintenance.db'
 
+# Update the MONTHS list in app.py (around line 18)
+# Replace the existing MONTHS list with this expanded version:
+
 MONTHS = [
     ('aug_2025', '2025-08', 'August 2025'),
     ('sep_2025', '2025-09', 'September 2025'),
     ('oct_2025', '2025-10', 'October 2025'),
     ('nov_2025', '2025-11', 'November 2025'),
-    ('dec_2025', '2025-12', 'December 2025')
+    ('dec_2025', '2025-12', 'December 2025'),
+    ('jan_2026', '2026-01', 'January 2026'),
+    ('feb_2026', '2026-02', 'February 2026'),
+    ('mar_2026', '2026-03', 'March 2026'),
+    ('apr_2026', '2026-04', 'April 2026'),
+    ('may_2026', '2026-05', 'May 2026'),
+    ('jun_2026', '2026-06', 'June 2026'),
+    ('jul_2026', '2026-07', 'July 2026'),
+    ('aug_2026', '2026-08', 'August 2026'),
+    ('sep_2026', '2026-09', 'September 2026'),
+    ('oct_2026', '2026-10', 'October 2026'),
+    ('nov_2026', '2026-11', 'November 2026'),
+    ('dec_2026', '2026-12', 'December 2026')
 ]
 
 TOTAL_HOUSES = 60
@@ -148,6 +163,7 @@ def index():
 
         cur = db.execute('SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,))
         rows = cur.fetchall()
+        #print ("#############", len(rows))
         records[display_key] = rows
 
         tot_cur = db.execute('SELECT SUM(amount) as s FROM records WHERE month = ? AND amount IS NOT NULL', (db_key,))
