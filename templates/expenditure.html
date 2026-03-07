@@ -10,12 +10,12 @@
   <div class="card-body d-flex justify-content-between align-items-center">
     <h5 class="card-title mb-0">Expenditure Management</h5>
     <small class="text-muted">
-      Everyone can view. Only <strong>Admin</strong> or <strong>Expenditure</strong> users can add.
+      Everyone can view. Only <strong>Admin</strong> or <strong>Expenditure</strong> users can add/edit.
     </small>
   </div>
 </div>
 
-{# Filter row: GET form to select month and a download button #}
+{# Filter row #}
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" class="form-inline">
@@ -29,46 +29,34 @@
         </select>
       </div>
       <button class="btn btn-sm btn-outline-primary mr-2">Apply</button>
-
-      {# Download CSV button respects the currently selected month #}
       <a id="downloadCsvBtn"
          href="{{ url_for('export_expenditures') }}{% if selected_month %}?month={{ selected_month }}{% endif %}"
-         class="btn btn-sm btn-secondary"
-         title="Download CSV of shown data">
+         class="btn btn-sm btn-secondary">
         Download CSV
       </a>
     </form>
   </div>
 </div>
 
-{# Add form - visible only to authorized users #}
+{# Add form #}
 {% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
-
 <div class="card mb-3">
   <div class="card-body">
     <form method="post" class="form-row" id="addExpenditureForm">
       <div class="form-group col-md-3">
-        <label class="sr-only">Month</label>
         <select name="month" class="form-control form-control-sm" required>
           {% for value, label in months %}
             <option value="{{ value }}">{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-
       <div class="form-group col-md-2">
-        <!-- Date picker -->
-        <label class="sr-only">Date</label>
         <input name="date" type="date" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
       </div>
-
       <div class="form-group col-md-2">
-        <label class="sr-only">Amount</label>
         <input name="amount" type="number" min="0" step="1" class="form-control form-control-sm" placeholder="Amount" required>
       </div>
-
       <div class="form-group col-md-3">
-        <label class="sr-only">Type</label>
         <select name="type" id="expTypeSelect" class="form-control form-control-sm">
           <option value="Water Bill">Water Bill</option>
           <option value="Electricity Bill">Electricity Bill</option>
@@ -76,16 +64,12 @@
           <option value="Other">Other (type below)</option>
         </select>
       </div>
-
       <div class="form-group col-md-12 mt-2" id="otherTypeWrapper" style="display:none;">
-        <input name="type_other" id="typeOtherInput" class="form-control form-control-sm" placeholder="Specify other type (e.g., Tools, Materials)">
-        <small class="text-muted">If you selected "Other", enter the custom type here. Otherwise leave blank.</small>
+        <input name="type_other" id="typeOtherInput" class="form-control form-control-sm" placeholder="Specify other type">
       </div>
-
       <div class="form-group col-md-12 mt-2">
         <input name="reason" class="form-control form-control-sm" placeholder="Reason / Notes">
       </div>
-
       <div class="form-group col-md-12 text-right mt-2">
         <button class="btn btn-sm btn-primary">Add Expenditure</button>
       </div>
@@ -94,58 +78,44 @@
 </div>
 
 <script>
-  // Toggle the "Other" input when user selects Other
-  document.addEventListener('DOMContentLoaded', function() {
-    var typeSelect = document.getElementById('expTypeSelect');
-    var otherWrapper = document.getElementById('otherTypeWrapper');
-    var otherInput = document.getElementById('typeOtherInput');
-    var addForm = document.getElementById('addExpenditureForm');
-
-    function toggleOther() {
-      if(!typeSelect) return;
-      if (typeSelect.value === 'Other') {
-        otherWrapper.style.display = 'block';
-        otherInput.required = true;
-      } else {
-        otherWrapper.style.display = 'none';
-        otherInput.required = false;
-        otherInput.value = '';
-      }
+document.addEventListener('DOMContentLoaded', function() {
+  var typeSelect = document.getElementById('expTypeSelect');
+  var otherWrapper = document.getElementById('otherTypeWrapper');
+  var otherInput = document.getElementById('typeOtherInput');
+  var addForm = document.getElementById('addExpenditureForm');
+  function toggleOther() {
+    if (!typeSelect) return;
+    if (typeSelect.value === 'Other') {
+      otherWrapper.style.display = 'block';
+      otherInput.required = true;
+    } else {
+      otherWrapper.style.display = 'none';
+      otherInput.required = false;
+      otherInput.value = '';
     }
-
-    // Initialize visibility
-    toggleOther();
-
-    if (typeSelect) {
-      typeSelect.addEventListener('change', toggleOther);
+  }
+  toggleOther();
+  if (typeSelect) typeSelect.addEventListener('change', toggleOther);
+  addForm.addEventListener('submit', function(e) {
+    if (typeSelect.value === 'Other') {
+      var existing = document.querySelector('input[name="type"][type="hidden"]');
+      if (existing) existing.parentNode.removeChild(existing);
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'type';
+      hidden.value = otherInput.value || 'Other';
+      addForm.appendChild(hidden);
+      typeSelect.removeAttribute('name');
+    } else {
+      if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name', 'type');
     }
-
-    // On submit, if Other is used, set the value of a hidden field 'type' to the typed value
-    addForm.addEventListener('submit', function(e){
-      // make sure 'type' parameter sent to server has custom value if Other chosen
-      if (typeSelect.value === 'Other') {
-        // create/replace a hidden input named 'type' with otherInput's value
-        var existing = document.querySelector('input[name="type"][type="hidden"]');
-        if (existing) existing.parentNode.removeChild(existing);
-        var hidden = document.createElement('input');
-        hidden.type = 'hidden';
-        hidden.name = 'type';
-        hidden.value = otherInput.value || 'Other';
-        addForm.appendChild(hidden);
-        // also remove the select's name so it doesn't override (optional)
-        typeSelect.removeAttribute('name');
-      }
-      // If not Other, ensure select has name 'type' (in case it was removed previously)
-      else {
-        if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name','type');
-      }
-    });
   });
+});
 </script>
 
 {% else %}
 <div class="alert alert-info">
-  You can view expenditures here. To add expenditures, sign in with an account that has the 
+  You can view expenditures here. To add/edit expenditures, sign in with an account that has the
   <strong>expenditure</strong> or <strong>admin</strong> role.
 </div>
 {% endif %}
@@ -154,7 +124,7 @@
 <div class="card">
   <div class="card-body">
     <h5 class="card-title">Expenditure Records {% if selected_month %} — {{ selected_month }}{% endif %}</h5>
-    <table class="table table-sm table-striped table-bordered">
+    <table class="table table-sm table-striped table-bordered" id="expenditureTable">
       <thead>
         <tr>
           <th>Month</th>
@@ -168,23 +138,73 @@
       </thead>
       <tbody>
         {% for e in expenditures %}
-        <tr>
+
+        {# ── VIEW row ── #}
+        <tr id="view-row-{{ e.id }}">
           <td>{{ e.month }}</td>
-          <td>{{ e.date }}</td>
+          <td>{{ e.date if e.date else '—' }}</td>
           <td>{{ e.amount }}</td>
           <td>{{ e.type }}</td>
           <td>{{ e.reason }}</td>
           <td>{{ e.created_by }}</td>
-          <td>
-            {% if session.username == 'admin' or session.role == 'admin' %}
-              <a href="{{ url_for('delete_expenditure', exp_id=e.id) }}" 
-                 class="btn btn-sm btn-outline-danger"
-                 onclick="return confirm('Delete this expenditure?')">Delete</a>
-            {% else %}
-              <small class="text-muted">Admin only</small>
-            {% endif %}
+          <td style="white-space:nowrap;">
+            <div class="d-flex flex-nowrap" style="gap:4px;">
+              {% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
+                <button class="btn btn-sm btn-outline-primary"
+                        onclick="startEdit({{ e.id }})">Edit</button>
+              {% endif %}
+              {% if session.username == 'admin' or session.role == 'admin' %}
+                <a href="{{ url_for('delete_expenditure', exp_id=e.id) }}"
+                   class="btn btn-sm btn-outline-danger"
+                   onclick="return confirm('Delete this expenditure?')">Delete</a>
+              {% endif %}
+              {% if not (session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin') %}
+                <small class="text-muted">Admin only</small>
+              {% endif %}
+            </div>
           </td>
         </tr>
+
+        {# ── EDIT row (hidden by default) ── #}
+        <tr id="edit-row-{{ e.id }}" style="display:none; background:#fffbe6;">
+          <form method="post" action="{{ url_for('edit_expenditure', exp_id=e.id) }}">
+            <td>
+              <select name="month" class="form-control form-control-sm" required>
+                {% for value, label in months %}
+                  <option value="{{ value }}" {% if e.month == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <input type="date" name="date" class="form-control form-control-sm"
+                     value="{{ e.date if e.date else '' }}">
+            </td>
+            <td>
+              <input type="number" name="amount" min="0" step="1"
+                     class="form-control form-control-sm"
+                     value="{{ e.amount if e.amount is not none else '' }}" required>
+            </td>
+            <td>
+              <input type="text" name="type" class="form-control form-control-sm"
+                     value="{{ e.type if e.type else '' }}"
+                     placeholder="e.g. Water Bill">
+            </td>
+            <td>
+              <input type="text" name="reason" class="form-control form-control-sm"
+                     value="{{ e.reason if e.reason else '' }}"
+                     placeholder="Reason / Notes">
+            </td>
+            <td>
+              <small class="text-muted">{{ e.created_by }}</small>
+            </td>
+            <td>
+              <button type="submit" class="btn btn-sm btn-success mr-1">Save</button>
+              <button type="button" class="btn btn-sm btn-secondary"
+                      onclick="cancelEdit({{ e.id }})">Cancel</button>
+            </td>
+          </form>
+        </tr>
+
         {% else %}
         <tr>
           <td colspan="7" class="text-center text-muted">No expenditures found.</td>
@@ -195,19 +215,25 @@
   </div>
 </div>
 
-<!-- small script to make Download CSV link reflect selected month immediately (optional UX improvement) -->
 <script>
-document.addEventListener('DOMContentLoaded', function(){
+// Toggle inline edit row
+function startEdit(id) {
+  document.getElementById('view-row-' + id).style.display = 'none';
+  document.getElementById('edit-row-' + id).style.display = 'table-row';
+}
+function cancelEdit(id) {
+  document.getElementById('edit-row-' + id).style.display = 'none';
+  document.getElementById('view-row-' + id).style.display = 'table-row';
+}
+
+// Download CSV link reflects selected month
+document.addEventListener('DOMContentLoaded', function() {
   var monthSelect = document.querySelector('form.form-inline select[name="month"]');
   var downloadBtn = document.getElementById('downloadCsvBtn');
-  if(monthSelect && downloadBtn){
-    monthSelect.addEventListener('change', function(){
+  if (monthSelect && downloadBtn) {
+    monthSelect.addEventListener('change', function() {
       var base = "{{ url_for('export_expenditures') }}";
-      if(this.value){
-        downloadBtn.href = base + '?month=' + encodeURIComponent(this.value);
-      } else {
-        downloadBtn.href = base;
-      }
+      downloadBtn.href = this.value ? base + '?month=' + encodeURIComponent(this.value) : base;
     });
   }
 });

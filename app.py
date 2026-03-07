@@ -779,6 +779,38 @@ def delete_expenditure(exp_id):
     db.commit()
     flash('Expenditure deleted')
     return redirect(url_for('expenditure'))
+# ── ADD this route to app.py right after the delete_expenditure route ──
+
+@app.route('/expenditure/edit/<int:exp_id>', methods=['POST'])
+def edit_expenditure(exp_id):
+    """
+    Inline-edit an existing expenditure record.
+    Allowed roles: admin, expenditure, maintenance_expenditure (same as add).
+    """
+    if not (is_builtin_admin() or session.get('role') in ('admin', 'expenditure', 'maintenance_expenditure')):
+        flash('You do not have permission to edit expenditures.')
+        return redirect(url_for('login'))
+
+    month  = request.form.get('month')
+    date   = request.form.get('date') or None
+    amount = request.form.get('amount') or '0'
+    exp_type = request.form.get('type') or None
+    reason   = request.form.get('reason') or ''
+
+    try:
+        amount = int(amount)
+    except Exception:
+        flash('Invalid amount')
+        return redirect(url_for('expenditure'))
+
+    db = get_db()
+    db.execute(
+        'UPDATE expenditures SET month=?, date=?, amount=?, type=?, reason=? WHERE id=?',
+        (month, date, amount, exp_type, reason, exp_id)
+    )
+    db.commit()
+    flash('Expenditure updated')
+    return redirect(url_for('expenditure'))
 
 @app.route("/photo")
 def photo_page():
