@@ -1,0 +1,69 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Manage Months / Years</h4>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Add a month</h5>
+    <p class="text-muted small">
+      Adding a month makes it appear under the matching year card. A blank row is created
+      for every house so payments can be entered straight away. Adding the first month of a
+      new year (e.g. January 2027) automatically creates the 2027 card.
+    </p>
+    <form method="post" class="form-row align-items-end">
+      <div class="form-group col-6 col-md-4">
+        <label class="small mb-1">Month</label>
+        <select name="month" class="form-control form-control-sm" required>
+          {% for num, name in month_choices %}
+            <option value="{{ num }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-6 col-md-3">
+        <label class="small mb-1">Year</label>
+        <input type="number" name="year" class="form-control form-control-sm"
+               min="2000" max="2100" value="2027" required>
+      </div>
+      <div class="form-group col-12 col-md-3">
+        <button class="btn btn-sm btn-primary btn-block">Add month</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Existing months</h5>
+    <table class="table table-sm table-bordered">
+      <thead class="thead-light">
+        <tr><th>Label</th><th>Key</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        {% for m in months_list %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td><code>{{ m.db_key }}</code></td>
+          <td>
+            <form method="post" action="{{ url_for('delete_month', month_id=m.id) }}"
+                  onsubmit="return confirm('Remove {{ m.label }}? This deletes ALL payments, expenditures and additions recorded for that month. This cannot be undone.');">
+              <button class="btn btn-sm btn-outline-danger">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted text-center">No months configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="small text-muted mb-0">
+      <strong>Note:</strong> removing a month permanently deletes every record tied to it. Only
+      remove a month added by mistake.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Advertisements</h4>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Add advertisement</h5>
+    <p class="text-muted small">
+      Posts appear on the home page community board for everyone to see — for example a society
+      member opening a food stall or offering a service.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+      <div class="form-group">
+        <label class="small mb-1">Title <span class="text-danger">*</span></label>
+        <input name="title" class="form-control form-control-sm" placeholder="e.g. Homemade Tiffin Service" required>
+      </div>
+      <div class="form-group">
+        <label class="small mb-1">Details</label>
+        <textarea name="description" class="form-control form-control-sm" rows="3"
+                  placeholder="Describe the offer, timings, price, etc."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="small mb-1">Contact</label>
+        <input name="contact" class="form-control form-control-sm" placeholder="Name / phone / house number">
+      </div>
+      <div class="form-group">
+        <label class="small mb-1">Photo</label>
+        <input type="file" name="image" accept="image/*" class="form-control-file">
+        <small class="form-text text-muted">PNG, JPG, GIF or WEBP. Optional.</small>
+      </div>
+      <button class="btn btn-sm btn-primary">Post advertisement</button>
+    </form>
+  </div>
+</div>
+
+<h5 class="mb-3">Current advertisements</h5>
+<div class="row">
+  {% for ad in ads %}
+  <div class="col-12 col-sm-6 col-lg-4 mb-3">
+    <div class="card h-100">
+      {% if ad.image_path %}
+        <img src="{{ url_for('static', filename=ad.image_path) }}" alt="{{ ad.title }}"
+             style="width:100%; height:170px; object-fit:cover; background:#f1f5f9;">
+      {% endif %}
+      <div class="card-body">
+        <h5 class="card-title mb-1">{{ ad.title }}</h5>
+        {% if ad.description %}<p class="card-text small">{{ ad.description }}</p>{% endif %}
+        {% if ad.contact %}<p class="card-text small mb-1"><strong>Contact:</strong> {{ ad.contact }}</p>{% endif %}
+        <small class="text-muted d-block mb-2">Posted by {{ ad.created_by }} · {{ ad.created_at }}</small>
+        <form method="post" action="{{ url_for('delete_ad', ad_id=ad.id) }}"
+              onsubmit="return confirm('Remove this advertisement?');">
+          <button class="btn btn-sm btn-outline-danger">Remove</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12"><div class="alert alert-light border">No advertisements posted yet.</div></div>
+  {% endfor %}
+</div>
+
+{% endblock %}

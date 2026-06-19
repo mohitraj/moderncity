@@ -372,6 +372,8 @@
 
           {% if session.get('username') == 'admin' or session.get('role') == 'admin' %}
           <a class="nav-link {% if request.endpoint == 'admin_panel' %}active{% endif %}" href="{{ url_for('admin_panel') }}">Admin</a>
+          <a class="nav-link {% if request.endpoint == 'manage_ads' %}active{% endif %}" href="{{ url_for('manage_ads') }}">Ads</a>
+          <a class="nav-link {% if request.endpoint == 'manage_months' %}active{% endif %}" href="{{ url_for('manage_months') }}">Months</a>
           {% endif %}
         </nav>
       </div>
@@ -403,6 +405,8 @@
 
             {% if session.get('username') == 'admin' or session.get('role') == 'admin' %}
             <li><a class="{% if request.endpoint == 'admin_panel' %}active{% endif %}" href="{{ url_for('admin_panel') }}">Admin</a></li>
+            <li><a class="{% if request.endpoint == 'manage_ads' %}active{% endif %}" href="{{ url_for('manage_ads') }}">Manage Ads</a></li>
+            <li><a class="{% if request.endpoint == 'manage_months' %}active{% endif %}" href="{{ url_for('manage_months') }}">Manage Months</a></li>
             {% endif %}
           </ul>
         </div>

@@ -1,6 +1,7 @@
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, Response
 import sqlite3, os, io, csv
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 import init_db as idb
 
@@ -16,10 +17,16 @@ ADMIN_USER = 'admin'
 ADMIN_PASS = 'Mo980616'
 DB_PATH = 'maintenance.db'
 
-# Update the MONTHS list in app.py (around line 18)
-# Replace the existing MONTHS list with this expanded version:
+# Month names used to build labels / display keys when admin adds a new month.
+MONTH_NAMES = ['January','February','March','April','May','June',
+               'July','August','September','October','November','December']
+MONTH_ABBR  = ['jan','feb','mar','apr','may','jun',
+               'jul','aug','sep','oct','nov','dec']
 
-MONTHS = [
+# _SEED_MONTHS is only used to populate the `months` table the very first time.
+# After that, the list of months is read from the database (see load_months()),
+# so admins can add new years/months from the UI without editing this file.
+_SEED_MONTHS = [
     ('aug_2025', '2025-08', 'August 2025'),
     ('sep_2025', '2025-09', 'September 2025'),
     ('oct_2025', '2025-10', 'October 2025'),
@@ -38,6 +45,9 @@ MONTHS = [
     ('nov_2026', '2026-11', 'November 2026'),
     ('dec_2026', '2026-12', 'December 2026')
 ]
+
+# MONTHS is refreshed from the database on every request (see _refresh_months()).
+MONTHS = list(_SEED_MONTHS)
 
 TOTAL_HOUSES = 60
 
@@ -70,6 +80,108 @@ def close_connection(exception):
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
+
+# ---------------------------
+# Dynamic months + advertisements (stored in maintenance.db)
+# ---------------------------
+# Folder where uploaded advertisement images are saved (under /static).
+ADS_SUBDIR = 'ads'
+ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+def _raw_conn():
+    """A plain connection used for schema setup / month loading (no app context needed)."""
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+def ensure_schema():
+    """Create the months + advertisements tables if missing, and seed months once."""
+    c = _raw_conn()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS months (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            db_key TEXT UNIQUE NOT NULL,
+            display_key TEXT UNIQUE NOT NULL,
+            label TEXT NOT NULL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS advertisements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            contact TEXT,
+            image_path TEXT,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    ''')
+    # Seed months from the legacy hardcoded list, but only the first time.
+    count = c.execute('SELECT COUNT(*) FROM months').fetchone()[0]
+    if count == 0:
+        for display_key, db_key, label in _SEED_MONTHS:
+            c.execute('INSERT OR IGNORE INTO months (db_key, display_key, label) VALUES (?,?,?)',
+                      (db_key, display_key, label))
+    c.commit()
+    c.close()
+
+def load_months():
+    """Return [(display_key, db_key, label), ...] ordered chronologically (by db_key)."""
+    if not os.path.exists(DB_PATH):
+        return list(_SEED_MONTHS)
+    try:
+        c = _raw_conn()
+        rows = c.execute('SELECT display_key, db_key, label FROM months ORDER BY db_key').fetchall()
+        c.close()
+        if rows:
+            return [(r['display_key'], r['db_key'], r['label']) for r in rows]
+    except Exception:
+        pass
+    return list(_SEED_MONTHS)
+
+# Build the tables and load months once at import time (only if the DB already exists,
+# so we never pre-create an empty file before init_db.main() can run on a fresh install).
+if os.path.exists(DB_PATH):
+    ensure_schema()
+MONTHS = load_months()
+
+@app.before_request
+def _refresh_months():
+    """Keep the module-level MONTHS list in sync with the database on every request."""
+    global MONTHS
+    if request.endpoint == 'static':
+        return
+    MONTHS = load_months()
+
+def distinct_years():
+    """Years present in the months table, newest first, e.g. ['2026','2025']."""
+    years = sorted({db_key[:4] for _, db_key, _ in MONTHS}, reverse=True)
+    return years
+
+def months_for_year(year):
+    """Subset of MONTHS belonging to a given year, chronological."""
+    return [(dk, db_key, label) for dk, db_key, label in MONTHS if db_key[:4] == str(year)]
+
+def display_key_for(db_key):
+    """Map a database month key ('2025-08') to its display key ('aug_2025')."""
+    for dk, dbk, _ in MONTHS:
+        if dbk == db_key:
+            return dk
+    return None
+
+def redirect_to_month(db_key):
+    """Redirect to the year view focused on the tab for db_key, falling back to home."""
+    if db_key:
+        year = db_key[:4]
+        anchor = display_key_for(db_key)
+        url = url_for('year_view', year=year)
+        if anchor:
+            url += '#' + anchor
+        return redirect(url)
+    return redirect(url_for('index'))
+
+def allowed_image(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXT
 
 # ---------------------------
 # Permission helpers & decorator
@@ -151,43 +263,87 @@ def _resolve_month_key(value):
 # ---------------------------
 @app.route('/')
 def index():
+    """Landing page: one card per year with full-year totals, plus advertisements."""
     db = get_db()
+
+    year_cards = []
+    for year in distinct_years():
+        yms = months_for_year(year)
+        db_keys = [db_key for _, db_key, _ in yms]
+        if not db_keys:
+            continue
+        ph = ','.join(['?'] * len(db_keys))
+
+        maint = db.execute(
+            f'SELECT COALESCE(SUM(amount),0) s FROM records WHERE month IN ({ph}) AND amount IS NOT NULL',
+            db_keys).fetchone()['s'] or 0
+        exp = db.execute(
+            f'SELECT COALESCE(SUM(amount),0) s FROM expenditures WHERE month IN ({ph})',
+            db_keys).fetchone()['s'] or 0
+        add = db.execute(
+            f'SELECT COALESCE(SUM(amount),0) s FROM additions WHERE month IN ({ph})',
+            db_keys).fetchone()['s'] or 0
+
+        maint, exp, add = int(maint), int(exp), int(add)
+        year_cards.append({
+            'year': year,
+            'maintenance': maint,
+            'additions': add,
+            'expenditure': exp,
+            'net': maint + add - exp,
+            'months_count': len(yms),
+        })
+
+    # Advertisements (visible to everyone)
+    try:
+        ads = db.execute(
+            'SELECT id, title, description, contact, image_path, created_by, created_at '
+            'FROM advertisements ORDER BY created_at DESC, id DESC'
+        ).fetchall()
+    except Exception:
+        ads = []
+
+    return render_template('home.html', year_cards=year_cards, ads=ads)
+
+
+@app.route('/year/<year>')
+def year_view(year):
+    """Drill-down into a single year: month tabs with per-month records and totals."""
+    db = get_db()
+    yms = months_for_year(year)
+    if not yms:
+        flash(f'No months found for {year}.')
+        return redirect(url_for('index'))
+
     records = {}
     totals = {}
     expenditures_total = {}
-    additions_total = {}  # ADD THIS
+    additions_total = {}
 
-    month_mapping = {}
-    for display_key, db_key, label in MONTHS:
-        month_mapping[display_key] = db_key
-
-        cur = db.execute('SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,))
-        rows = cur.fetchall()
-        #print ("#############", len(rows))
+    for display_key, db_key, label in yms:
+        rows = db.execute(
+            'SELECT * FROM records WHERE month = ? ORDER BY house_number', (db_key,)).fetchall()
         records[display_key] = rows
 
-        tot_cur = db.execute('SELECT SUM(amount) as s FROM records WHERE month = ? AND amount IS NOT NULL', (db_key,))
-        payments_sum = tot_cur.fetchone()['s'] or 0
+        payments_sum = db.execute(
+            'SELECT SUM(amount) s FROM records WHERE month = ? AND amount IS NOT NULL',
+            (db_key,)).fetchone()['s'] or 0
+        exp_sum = db.execute(
+            'SELECT SUM(amount) s FROM expenditures WHERE month = ?', (db_key,)).fetchone()['s'] or 0
+        add_sum = db.execute(
+            'SELECT SUM(amount) s FROM additions WHERE month = ?', (db_key,)).fetchone()['s'] or 0
 
-        exp_cur = db.execute('SELECT SUM(amount) as s FROM expenditures WHERE month = ?', (db_key,))
-        exp_sum = exp_cur.fetchone()['s'] or 0
         expenditures_total[display_key] = int(exp_sum)
-
-        # ADD THESE 3 LINES
-        add_cur = db.execute('SELECT SUM(amount) as s FROM additions WHERE month = ?', (db_key,))
-        add_sum = add_cur.fetchone()['s'] or 0
         additions_total[display_key] = int(add_sum)
-
-        # UPDATE THIS LINE
         totals[display_key] = int(payments_sum) - int(exp_sum) + int(add_sum)
 
-    return render_template('index.html',
-                           months=[(k, label) for k, _, label in MONTHS],
+    return render_template('year.html',
+                           year=year,
+                           months=[(k, label) for k, _, label in yms],
                            records=records,
                            totals=totals,
                            expenditures_total=expenditures_total,
-                           additions_total=additions_total,  # ADD THIS
-                           month_mapping=month_mapping)
+                           additions_total=additions_total)
 
 @app.route('/login', methods=['GET','POST'])
 def login():
@@ -249,7 +405,7 @@ def add():
         db.execute('UPDATE records SET date_paid = ?, amount = ? WHERE house_number = ? AND month = ?', (date_paid, amount, house, month))
         db.commit()
         flash('Payment added/updated')
-        return redirect(url_for('index'))
+        return redirect_to_month(month)
 
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
     return render_template('add.html', total_houses=TOTAL_HOUSES, months=month_options)
@@ -274,7 +430,7 @@ def edit(rec_id):
         db.execute('UPDATE records SET month = ?, date_paid = ?, amount = ? WHERE id = ?', (month, date_paid, amount, rec_id))
         db.commit()
         flash('Record saved')
-        return redirect(url_for('index'))
+        return redirect_to_month(month)
 
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
     return render_template('edit.html', rec=rec, months=month_options)
@@ -283,10 +439,11 @@ def edit(rec_id):
 @require_roles('admin')
 def delete(rec_id):
     db = get_db()
+    rec = db.execute('SELECT month FROM records WHERE id = ?', (rec_id,)).fetchone()
     db.execute('UPDATE records SET date_paid = NULL, amount = NULL WHERE id = ?', (rec_id,))
     db.commit()
     flash('Record cleared')
-    return redirect(url_for('index'))
+    return redirect_to_month(rec['month'] if rec else None)
 
 # ----------------------
 # Export routes
@@ -725,32 +882,98 @@ def expenditure():
         flash('Expenditure recorded')
         return redirect(url_for('expenditure'))
 
-    # GET -> support optional month filter via query param ?month=YYYY-MM
-    selected_month = request.args.get('month')  # e.g. '2025-08' or None for all
-    if selected_month:
-        cur = db.execute('SELECT * FROM expenditures WHERE month = ? ORDER BY date DESC, id DESC', (selected_month,))
-    else:
-        cur = db.execute('SELECT * FROM expenditures ORDER BY month DESC, date DESC, id DESC')
-    exp_rows = cur.fetchall()
+    # GET -> filters: ?month=YYYY-MM and/or ?year=YYYY ; pagination: ?per_page & ?page
+    selected_month = request.args.get('month') or ''
+    selected_year = request.args.get('year') or ''
 
-    # month options for filter / form
+    # Build WHERE clause. Month is most specific, so it wins when both are set.
+    where = ''
+    params = []
+    if selected_month:
+        where = 'WHERE month = ?'
+        params = [selected_month]
+    elif selected_year:
+        where = 'WHERE substr(month,1,4) = ?'
+        params = [selected_year]
+
+    # Full filtered set (used for the totals + category breakdown below the table)
+    full_rows = db.execute(
+        f'SELECT * FROM expenditures {where} ORDER BY month DESC, date DESC, id DESC',
+        params).fetchall()
+
+    total_amount = sum((r['amount'] or 0) for r in full_rows)
+    record_count = len(full_rows)
+    largest = max((r['amount'] or 0) for r in full_rows) if full_rows else 0
+    avg_amount = (total_amount // record_count) if record_count else 0
+
+    # Category breakdown over the full filtered set: top 6 + an "Other" bucket
+    type_totals = {}
+    for r in full_rows:
+        key = r['type'] if r['type'] else 'Other'
+        type_totals[key] = type_totals.get(key, 0) + (r['amount'] or 0)
+    ordered = sorted(type_totals.items(), key=lambda kv: kv[1], reverse=True)
+    top_n = 6
+    category_breakdown = ordered[:top_n]
+    rest = ordered[top_n:]
+    rest_total = sum(v for _, v in rest)
+    rest_count = len(rest)
+
+    # Pagination
+    allowed_per_page = [10, 20, 30, 50, 100]
+    try:
+        per_page = int(request.args.get('per_page', 20))
+    except Exception:
+        per_page = 20
+    if per_page not in allowed_per_page:
+        per_page = 20
+    total_pages = max(1, (record_count + per_page - 1) // per_page)
+    try:
+        page = int(request.args.get('page', 1))
+    except Exception:
+        page = 1
+    page = min(max(1, page), total_pages)
+    start = (page - 1) * per_page
+    exp_rows = full_rows[start:start + per_page]
+    page_subtotal = sum((r['amount'] or 0) for r in exp_rows)
+
+    # month + year options for filters / forms
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
+    year_options = distinct_years()
+
     return render_template('expenditure.html',
                            expenditures=exp_rows,
                            months=month_options,
-                           selected_month=selected_month)
+                           years=year_options,
+                           selected_month=selected_month,
+                           selected_year=selected_year,
+                           total_amount=total_amount,
+                           record_count=record_count,
+                           largest=largest,
+                           avg_amount=avg_amount,
+                           category_breakdown=category_breakdown,
+                           rest_total=rest_total,
+                           rest_count=rest_count,
+                           per_page=per_page,
+                           allowed_per_page=allowed_per_page,
+                           page=page,
+                           total_pages=total_pages,
+                           page_subtotal=page_subtotal)
 
 @app.route('/expenditure/export')
 def export_expenditures():
     """
-    Export expenditures to CSV. Optional query param: ?month=YYYY-MM
-    If month is provided, only that month's expenditures are exported; otherwise all.
+    Export expenditures to CSV. Optional query params: ?month=YYYY-MM or ?year=YYYY
+    Month takes precedence when both are supplied; otherwise all are exported.
     """
     db = get_db()
     month = request.args.get('month')
+    year = request.args.get('year')
     if month:
         cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures WHERE month = ? ORDER BY date DESC, id DESC', (month,))
         filename = f"expenditures_{month}.csv"
+    elif year:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures WHERE substr(month,1,4) = ? ORDER BY month DESC, date DESC, id DESC', (year,))
+        filename = f"expenditures_{year}.csv"
     else:
         cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM expenditures ORDER BY month DESC, date DESC, id DESC')
         filename = "expenditures_all.csv"
@@ -1506,12 +1729,160 @@ def delete_addition(add_id):
     return redirect(url_for('addition'))
 
 # ----------------------
+# Admin: manage months / years (add or remove the periods shown on the site)
+# ----------------------
+@app.route('/admin/months', methods=['GET', 'POST'])
+def manage_months():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+
+    if request.method == 'POST':
+        year_raw = (request.form.get('year') or '').strip()
+        month_raw = (request.form.get('month') or '').strip()  # '1'..'12'
+        try:
+            year = int(year_raw)
+            month_num = int(month_raw)
+            if year < 2000 or year > 2100 or month_num < 1 or month_num > 12:
+                raise ValueError
+        except Exception:
+            flash('Please choose a valid year (2000–2100) and month.')
+            return redirect(url_for('manage_months'))
+
+        db_key = f'{year:04d}-{month_num:02d}'
+        display_key = f'{MONTH_ABBR[month_num-1]}_{year}'
+        label = f'{MONTH_NAMES[month_num-1]} {year}'
+
+        # Already present?
+        exists = db.execute('SELECT 1 FROM months WHERE db_key = ?', (db_key,)).fetchone()
+        if exists:
+            flash(f'{label} already exists.')
+            return redirect(url_for('manage_months'))
+
+        # Add the month, then seed a blank record per house so "Add Payment" works.
+        db.execute('INSERT INTO months (db_key, display_key, label) VALUES (?,?,?)',
+                   (db_key, display_key, label))
+        seeded = 0
+        have = db.execute('SELECT COUNT(*) c FROM records WHERE month = ?', (db_key,)).fetchone()['c']
+        if have == 0:
+            for h in range(1, TOTAL_HOUSES + 1):
+                db.execute('INSERT INTO records (house_number, month, date_paid, amount) VALUES (?,?,?,?)',
+                           (h, db_key, None, None))
+                seeded += 1
+        db.commit()
+        flash(f'Added {label}' + (f' and prepared {seeded} house rows.' if seeded else '.'))
+        return redirect(url_for('manage_months'))
+
+    # GET: list existing months grouped by year for display
+    rows = db.execute('SELECT id, db_key, display_key, label FROM months ORDER BY db_key DESC').fetchall()
+    months_list = [dict(r) for r in rows]
+    month_choices = list(enumerate(MONTH_NAMES, start=1))  # [(1,'January'), ...]
+    return render_template('manage_months.html',
+                           months_list=months_list,
+                           month_choices=month_choices)
+
+
+@app.route('/admin/months/delete/<int:month_id>', methods=['POST'])
+def delete_month(month_id):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    row = db.execute('SELECT db_key, label FROM months WHERE id = ?', (month_id,)).fetchone()
+    if not row:
+        flash('Month not found.')
+        return redirect(url_for('manage_months'))
+
+    db_key = row['db_key']
+    # Remove the month and ALL data tied to it (records, expenditures, additions).
+    db.execute('DELETE FROM records WHERE month = ?', (db_key,))
+    db.execute('DELETE FROM expenditures WHERE month = ?', (db_key,))
+    db.execute('DELETE FROM additions WHERE month = ?', (db_key,))
+    db.execute('DELETE FROM months WHERE id = ?', (month_id,))
+    db.commit()
+    flash(f"Removed {row['label']} and all of its records.")
+    return redirect(url_for('manage_months'))
+
+
+# ----------------------
+# Admin: advertisements (photo + details shown on the landing page)
+# ----------------------
+@app.route('/admin/ads', methods=['GET', 'POST'])
+def manage_ads():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+
+    if request.method == 'POST':
+        title = (request.form.get('title') or '').strip()
+        description = (request.form.get('description') or '').strip()
+        contact = (request.form.get('contact') or '').strip()
+        if not title:
+            flash('A title is required for the advertisement.')
+            return redirect(url_for('manage_ads'))
+
+        image_path = None
+        uploaded = request.files.get('image')
+        if uploaded and uploaded.filename:
+            if not allowed_image(uploaded.filename):
+                flash('Image must be a PNG, JPG, GIF or WEBP file.')
+                return redirect(url_for('manage_ads'))
+            ads_dir = os.path.join(app.static_folder, ADS_SUBDIR)
+            os.makedirs(ads_dir, exist_ok=True)
+            base = secure_filename(uploaded.filename) or 'ad.jpg'
+            fname = f"{int(datetime.now().timestamp())}_{base}"
+            uploaded.save(os.path.join(ads_dir, fname))
+            image_path = f'{ADS_SUBDIR}/{fname}'  # relative to /static
+
+        db.execute(
+            'INSERT INTO advertisements (title, description, contact, image_path, created_by) '
+            'VALUES (?,?,?,?,?)',
+            (title, description, contact, image_path, session.get('username') or 'admin'))
+        db.commit()
+        flash('Advertisement added.')
+        return redirect(url_for('manage_ads'))
+
+    ads = db.execute(
+        'SELECT id, title, description, contact, image_path, created_by, created_at '
+        'FROM advertisements ORDER BY created_at DESC, id DESC').fetchall()
+    return render_template('manage_ads.html', ads=ads)
+
+
+@app.route('/admin/ads/delete/<int:ad_id>', methods=['POST'])
+def delete_ad(ad_id):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    row = db.execute('SELECT image_path FROM advertisements WHERE id = ?', (ad_id,)).fetchone()
+    if row and row['image_path']:
+        try:
+            os.remove(os.path.join(app.static_folder, row['image_path']))
+        except Exception:
+            pass  # file may already be gone; ignore
+    db.execute('DELETE FROM advertisements WHERE id = ?', (ad_id,))
+    db.commit()
+    flash('Advertisement removed.')
+    return redirect(url_for('manage_ads'))
+
+
+# ----------------------
 # Run
 # ----------------------
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         print("Database not found. Run 'python init_db.py' to create it.")
         idb.main()
+    # Make sure the months + advertisements tables exist (and months are seeded),
+    # including right after a fresh init_db.main() created the database above.
+    ensure_schema()
+    MONTHS = load_months()
     scheduler.init_app(app)
     # in dev, avoid double-start from the reloader:
     scheduler.start()

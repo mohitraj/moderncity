@@ -1,0 +1,107 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Year {{ year }}</h4>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+</div>
+
+<!-- Export this year -->
+<div class="mb-3">
+  <a href="{{ url_for('export_year', year=year) }}" class="btn btn-sm btn-outline-info">
+    Export All {{ year }} Months CSV
+  </a>
+</div>
+
+<!-- Month tabs: horizontally scrollable on small screens -->
+<ul class="nav nav-tabs" id="monthTabs" role="tablist">
+  {% for key,label in months %}
+    <li class="nav-item">
+      <a class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{key}}"
+         data-toggle="tab"
+         href="#{{key}}"
+         role="tab"
+         aria-controls="{{key}}"
+         aria-selected="{% if loop.first %}true{% else %}false{% endif %}">
+        {{label}}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content mt-3">
+  {% for key,label in months %}
+    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{key}}" role="tabpanel" aria-labelledby="tab-{{key}}">
+      <div class="mb-2 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+        <h5 class="mb-2 mb-md-0">{{label}}</h5>
+        <div class="d-flex flex-wrap align-items-center">
+          {% if session.get('role') %}
+            <a href="{{ url_for('add') }}" class="btn btn-sm btn-success mr-2 mb-2 small-action-btn">Add Payment</a>
+            <a href="{{ url_for('expenditure') }}" class="btn btn-sm btn-warning mr-2 mb-2 small-action-btn">Expenditure</a>
+            <a href="{{ url_for('addition') }}" class="btn btn-sm btn-info mr-2 mb-2 small-action-btn">Addition</a>
+          {% endif %}
+          <a href="{{ url_for('export_month', month_key=key) }}" class="btn btn-sm btn-outline-info ml-0 ml-md-2 mb-2 small-action-btn">Export CSV</a>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm mb-0">
+          <thead class="thead-light">
+            <tr>
+              <th style="min-width:90px;">House</th>
+              <th style="min-width:120px;">Date Paid</th>
+              <th style="min-width:100px;">Amount</th>
+              {% if session.get('role') %}<th style="min-width:120px;">Actions</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in records[key] %}
+              <tr>
+                <td>{{ r.house_number }}</td>
+                <td>{{ r.date_paid if r.date_paid else '-' }}</td>
+                <td>{{ r.amount if r.amount is not none else '-' }}</td>
+                {% if session.get('role') %}
+                <td>
+                  <div class="d-flex flex-wrap">
+                    <a href="{{ url_for('edit', rec_id=r.id) }}" class="btn btn-sm btn-outline-primary mr-1 mb-1">Edit</a>
+                    <a href="{{ url_for('delete', rec_id=r.id) }}" class="btn btn-sm btn-outline-danger mb-1">Delete</a>
+                  </div>
+                </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+            {% if records[key]|length == 0 %}
+              <tr>
+                <td colspan="{{ 3 + (1 if session.get('role') else 0) }}" class="text-center text-muted py-4">No records for this month.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+          <tfoot>
+            <tr class="table-info">
+              <th class="text-right" colspan="2">Maintenance Total (Payments)</th>
+              <th>{{ totals[key] + expenditures_total[key] - additions_total[key] }}</th>
+              {% if session.get('role') %}<th></th>{% endif %}
+            </tr>
+            <tr class="table-success">
+              <th class="text-right" colspan="2">Addition Total</th>
+              <th>{{ additions_total[key] }}</th>
+              {% if session.get('role') %}<th></th>{% endif %}
+            </tr>
+            <tr class="table-warning">
+              <th class="text-right" colspan="2">Expenditure Total</th>
+              <th>{{ expenditures_total[key] }}</th>
+              {% if session.get('role') %}<th></th>{% endif %}
+            </tr>
+            <tr class="table-primary">
+              <th class="text-right" colspan="2"><strong>Net Total (Maintenance + Addition − Expenditure)</strong></th>
+              <th><strong>{{ totals[key] }}</strong></th>
+              {% if session.get('role') %}<th></th>{% endif %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

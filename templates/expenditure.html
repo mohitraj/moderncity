@@ -1,26 +1,148 @@
 {% extends 'layout.html' %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">Expenditures</h4>
-  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+<style>
+  .exp-page { font-size: 1rem; }
+  .exp-hero {
+    background: linear-gradient(135deg, #b21f2d 0%, #dc3545 100%);
+    color: #fff; border-radius: 12px; padding: 1.25rem 1.25rem; margin-bottom: 1.25rem;
+  }
+  .exp-hero h4 { margin: 0; font-weight: 700; font-size: 1.6rem; }
+  .exp-hero small { opacity: .92; font-size: .95rem; }
+  .exp-hero .btn-back { background: rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.35); }
+  .exp-hero .btn-back:hover { background: rgba(255,255,255,.3); }
+
+  .stat-card { border:1px solid #eee; border-radius:12px; padding:1rem 1.1rem; height:100%; background:#fff; }
+  .stat-card .stat-label { color:#6c757d; font-size:.9rem; text-transform:uppercase; letter-spacing:.03em; }
+  .stat-card .stat-value { font-size:1.8rem; font-weight:700; line-height:1.2; }
+  .stat-total .stat-value { color:#c82333; }
+  .stat-card.accent-l { border-left:4px solid #dc3545; }
+  .stat-card small { font-size:.85rem; }
+
+  .cat-card { border:1px solid #eee; border-radius:12px; padding:.85rem 1rem; height:100%; background:#fff; }
+  .cat-card .cat-name { font-weight:600; font-size:1rem; }
+  .cat-card .cat-amt { font-weight:700; font-size:1.05rem; }
+  .cat-card small { font-size:.85rem; }
+  .cat-bar { height:7px; border-radius:4px; background:#f0f0f0; overflow:hidden; margin-top:.5rem; }
+  .cat-bar > span { display:block; height:100%; border-radius:4px; }
+
+  /* Bigger, more readable records table (overrides the small mobile defaults) */
+  .records-card .table { font-size: 1rem; }
+  .records-card .table thead th { background:#f8f9fa; border-top:none; font-size:.85rem;
+     text-transform:uppercase; letter-spacing:.02em; color:#6c757d; }
+  .records-card .table td { vertical-align:middle; padding:.6rem .5rem; }
+  .records-card .badge { font-size:.9rem; font-weight:600; white-space:normal; text-align:left; }
+  .amt-cell { font-weight:700; white-space:nowrap; font-size:1.05rem; }
+
+  .filtered-total {
+    background:#fff5f5; border:1px solid #f5c6cb; border-radius:12px;
+    padding:.9rem 1.1rem; margin-top:1rem;
+    display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem;
+  }
+  .filtered-total .ft-amt { font-size:1.6rem; font-weight:700; color:#c82333; }
+  .filter-bar label { font-size:.95rem; }
+  .filter-bar .form-control-sm { font-size:.95rem; }
+  .pagination-bar .btn { min-width:42px; }
+</style>
+
+<div class="exp-page">
+
+{# Description of the active filter, reused in a few places #}
+{% set filter_desc = selected_month if selected_month else (selected_year if selected_year else 'all months') %}
+
+<!-- Hero header -->
+<div class="exp-hero d-flex flex-wrap justify-content-between align-items-center">
+  <div>
+    <h4>Expenditures</h4>
+    <small>Showing {{ filter_desc }} · everyone can view, admin/expenditure can edit</small>
+  </div>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-back mt-2 mt-sm-0">← Back to Home</a>
 </div>
 
-<div class="card mb-3">
-  <div class="card-body d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">Expenditure Management</h5>
-    <small class="text-muted">
-      Everyone can view. Only <strong>Admin</strong> or <strong>Expenditure</strong> users can add/edit.
-    </small>
+<!-- Summary stat cards (reflect the FULL filtered set, not just this page) -->
+<div class="row mb-2">
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card stat-total accent-l">
+      <div class="stat-label">Total spent</div>
+      <div class="stat-value">₹{{ "{:,}".format(total_amount) }}</div>
+      <small class="text-muted">{{ filter_desc }}</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Records</div>
+      <div class="stat-value">{{ record_count }}</div>
+      <small class="text-muted">entries</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Largest entry</div>
+      <div class="stat-value">₹{{ "{:,}".format(largest) }}</div>
+      <small class="text-muted">single expense</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Average / entry</div>
+      <div class="stat-value">₹{{ "{:,}".format(avg_amount) }}</div>
+      <small class="text-muted">mean amount</small>
+    </div>
   </div>
 </div>
 
-{# Filter row #}
+<!-- Spend by category -->
+{% if category_breakdown %}
+<h6 class="text-muted mb-2" style="font-size:1rem;">Top spend categories — {{ filter_desc }}</h6>
+<div class="row mb-3">
+  {% set palette = ['#dc3545','#fd7e14','#6f42c1','#0d6efd','#20c997','#d63384'] %}
+  {% for name, amt in category_breakdown %}
+    {% set color = palette[loop.index0 % palette|length] %}
+    <div class="col-12 col-sm-6 col-lg-4 mb-3">
+      <div class="cat-card">
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span class="cat-name text-truncate" style="max-width:68%" title="{{ name }}">{{ name }}</span>
+          <span class="cat-amt" style="color:{{ color }}">₹{{ "{:,}".format(amt) }}</span>
+        </div>
+        <div class="cat-bar">
+          <span style="width: {{ ((amt / total_amount) * 100) if total_amount else 0 }}%; background: {{ color }};"></span>
+        </div>
+        <small class="text-muted">{{ ((amt / total_amount) * 100) | round(1) if total_amount else 0 }}% of total</small>
+      </div>
+    </div>
+  {% endfor %}
+  {% if rest_count > 0 %}
+    <div class="col-12 col-sm-6 col-lg-4 mb-3">
+      <div class="cat-card">
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span class="cat-name">Other ({{ rest_count }} item{{ '' if rest_count == 1 else 's' }})</span>
+          <span class="cat-amt" style="color:#6c757d">₹{{ "{:,}".format(rest_total) }}</span>
+        </div>
+        <div class="cat-bar">
+          <span style="width: {{ ((rest_total / total_amount) * 100) if total_amount else 0 }}%; background:#6c757d;"></span>
+        </div>
+        <small class="text-muted">{{ ((rest_total / total_amount) * 100) | round(1) if total_amount else 0 }}% of total</small>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Filters: year + month + per-page -->
 <div class="card mb-3">
-  <div class="card-body">
-    <form method="get" class="form-inline">
-      <label class="mr-2">Filter by month:</label>
-      <div class="form-group mr-2">
+  <div class="card-body py-3 filter-bar">
+    <form method="get" class="form-row align-items-end">
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Year</label>
+        <select name="year" class="form-control form-control-sm">
+          <option value="">All years</option>
+          {% for y in years %}
+            <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Month</label>
         <select name="month" class="form-control form-control-sm">
           <option value="">All months</option>
           {% for value, label in months %}
@@ -28,22 +150,32 @@
           {% endfor %}
         </select>
       </div>
-      <button class="btn btn-sm btn-outline-primary mr-2">Apply</button>
-      <a id="downloadCsvBtn"
-         href="{{ url_for('export_expenditures') }}{% if selected_month %}?month={{ selected_month }}{% endif %}"
-         class="btn btn-sm btn-secondary">
-        Download CSV
-      </a>
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Show per page</label>
+        <select name="per_page" class="form-control form-control-sm">
+          {% for n in allowed_per_page %}
+            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-6 col-md-3 mb-2 d-flex" style="gap:.4rem;">
+        <button class="btn btn-sm btn-outline-primary flex-fill">Apply</button>
+        <a href="{{ url_for('export_expenditures') }}{% if selected_month %}?month={{ selected_month }}{% elif selected_year %}?year={{ selected_year }}{% endif %}"
+           class="btn btn-sm btn-secondary">CSV</a>
+      </div>
     </form>
+    <small class="text-muted">Month takes priority over year when both are selected.</small>
   </div>
 </div>
 
-{# Add form #}
+<!-- Add form -->
 {% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
-<div class="card mb-3">
+<div class="card mb-3 border-danger">
   <div class="card-body">
+    <h6 class="card-title mb-3" style="font-size:1.05rem;">Add an expenditure</h6>
     <form method="post" class="form-row" id="addExpenditureForm">
       <div class="form-group col-md-3">
+        <label class="mb-1">Month</label>
         <select name="month" class="form-control form-control-sm" required>
           {% for value, label in months %}
             <option value="{{ value }}">{{ label }}</option>
@@ -51,12 +183,15 @@
         </select>
       </div>
       <div class="form-group col-md-2">
-        <input name="date" type="date" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
+        <label class="mb-1">Date</label>
+        <input name="date" type="date" class="form-control form-control-sm">
       </div>
       <div class="form-group col-md-2">
+        <label class="mb-1">Amount</label>
         <input name="amount" type="number" min="0" step="1" class="form-control form-control-sm" placeholder="Amount" required>
       </div>
       <div class="form-group col-md-3">
+        <label class="mb-1">Type</label>
         <select name="type" id="expTypeSelect" class="form-control form-control-sm">
           <option value="Water Bill">Water Bill</option>
           <option value="Electricity Bill">Electricity Bill</option>
@@ -64,14 +199,14 @@
           <option value="Other">Other (type below)</option>
         </select>
       </div>
-      <div class="form-group col-md-12 mt-2" id="otherTypeWrapper" style="display:none;">
+      <div class="form-group col-md-2 d-flex align-items-end">
+        <button class="btn btn-sm btn-danger btn-block">Add</button>
+      </div>
+      <div class="form-group col-md-12 mt-1" id="otherTypeWrapper" style="display:none;">
         <input name="type_other" id="typeOtherInput" class="form-control form-control-sm" placeholder="Specify other type">
       </div>
-      <div class="form-group col-md-12 mt-2">
+      <div class="form-group col-md-12 mt-1">
         <input name="reason" class="form-control form-control-sm" placeholder="Reason / Notes">
-      </div>
-      <div class="form-group col-md-12 text-right mt-2">
-        <button class="btn btn-sm btn-primary">Add Expenditure</button>
       </div>
     </form>
   </div>
@@ -85,14 +220,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var addForm = document.getElementById('addExpenditureForm');
   function toggleOther() {
     if (!typeSelect) return;
-    if (typeSelect.value === 'Other') {
-      otherWrapper.style.display = 'block';
-      otherInput.required = true;
-    } else {
-      otherWrapper.style.display = 'none';
-      otherInput.required = false;
-      otherInput.value = '';
-    }
+    if (typeSelect.value === 'Other') { otherWrapper.style.display = 'block'; otherInput.required = true; }
+    else { otherWrapper.style.display = 'none'; otherInput.required = false; otherInput.value = ''; }
   }
   toggleOther();
   if (typeSelect) typeSelect.addEventListener('change', toggleOther);
@@ -101,14 +230,10 @@ document.addEventListener('DOMContentLoaded', function() {
       var existing = document.querySelector('input[name="type"][type="hidden"]');
       if (existing) existing.parentNode.removeChild(existing);
       var hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      hidden.name = 'type';
-      hidden.value = otherInput.value || 'Other';
+      hidden.type = 'hidden'; hidden.name = 'type'; hidden.value = otherInput.value || 'Other';
       addForm.appendChild(hidden);
       typeSelect.removeAttribute('name');
-    } else {
-      if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name', 'type');
-    }
+    } else { if (!typeSelect.getAttribute('name')) typeSelect.setAttribute('name', 'type'); }
   });
 });
 </script>
@@ -120,103 +245,128 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endif %}
 
-{# Records table #}
-<div class="card">
+<!-- Records table -->
+<div class="card records-card">
   <div class="card-body">
-    <h5 class="card-title">Expenditure Records {% if selected_month %} — {{ selected_month }}{% endif %}</h5>
-    <table class="table table-sm table-striped table-bordered" id="expenditureTable">
-      <thead>
-        <tr>
-          <th>Month</th>
-          <th>Date</th>
-          <th>Amount</th>
-          <th>Type</th>
-          <th>Reason</th>
-          <th>Created By</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in expenditures %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+      <h6 class="card-title mb-0" style="font-size:1.05rem;">Records — {{ filter_desc }}</h6>
+      <small class="text-muted">
+        {% if record_count %}
+          Showing {{ (page-1)*per_page + 1 }}–{{ (page-1)*per_page + expenditures|length }} of {{ record_count }}
+        {% else %}0 records{% endif %}
+      </small>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="expenditureTable">
+        <thead>
+          <tr>
+            <th>Month</th><th>Date</th><th>Amount</th><th>Type</th>
+            <th>Reason</th><th>Created By</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in expenditures %}
 
-        {# ── VIEW row ── #}
-        <tr id="view-row-{{ e.id }}">
-          <td>{{ e.month }}</td>
-          <td>{{ e.date if e.date else '—' }}</td>
-          <td>{{ e.amount }}</td>
-          <td>{{ e.type }}</td>
-          <td>{{ e.reason }}</td>
-          <td>{{ e.created_by }}</td>
-          <td style="white-space:nowrap;">
-            <div class="d-flex flex-nowrap" style="gap:4px;">
-              {% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
-                <button class="btn btn-sm btn-outline-primary"
-                        onclick="startEdit({{ e.id }})">Edit</button>
-              {% endif %}
-              {% if session.username == 'admin' or session.role == 'admin' %}
-                <a href="{{ url_for('delete_expenditure', exp_id=e.id) }}"
-                   class="btn btn-sm btn-outline-danger"
-                   onclick="return confirm('Delete this expenditure?')">Delete</a>
-              {% endif %}
-              {% if not (session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin') %}
-                <small class="text-muted">Admin only</small>
-              {% endif %}
-            </div>
-          </td>
-        </tr>
+          {# View row #}
+          <tr id="view-row-{{ e.id }}">
+            <td>{{ e.month }}</td>
+            <td>{{ e.date if e.date else '—' }}</td>
+            <td class="amt-cell">₹{{ "{:,}".format(e.amount or 0) }}</td>
+            <td><span class="badge badge-light border">{{ e.type }}</span></td>
+            <td>{{ e.reason }}</td>
+            <td><small class="text-muted">{{ e.created_by }}</small></td>
+            <td style="white-space:nowrap;">
+              <div class="d-flex flex-nowrap" style="gap:4px;">
+                {% if session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin' %}
+                  <button class="btn btn-sm btn-outline-primary" onclick="startEdit({{ e.id }})">Edit</button>
+                {% endif %}
+                {% if session.username == 'admin' or session.role == 'admin' %}
+                  <a href="{{ url_for('delete_expenditure', exp_id=e.id) }}"
+                     class="btn btn-sm btn-outline-danger"
+                     onclick="return confirm('Delete this expenditure?')">Delete</a>
+                {% endif %}
+                {% if not (session.get('role') in ['admin','expenditure','maintenance_expenditure'] or session.get('username') == 'admin') %}
+                  <small class="text-muted">Admin only</small>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
 
-        {# ── EDIT row (hidden by default) ── #}
-        <tr id="edit-row-{{ e.id }}" style="display:none; background:#fffbe6;">
-          <form method="post" action="{{ url_for('edit_expenditure', exp_id=e.id) }}">
-            <td>
-              <select name="month" class="form-control form-control-sm" required>
-                {% for value, label in months %}
-                  <option value="{{ value }}" {% if e.month == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td>
-              <input type="date" name="date" class="form-control form-control-sm"
-                     value="{{ e.date if e.date else '' }}">
-            </td>
-            <td>
-              <input type="number" name="amount" min="0" step="1"
-                     class="form-control form-control-sm"
-                     value="{{ e.amount if e.amount is not none else '' }}" required>
-            </td>
-            <td>
-              <input type="text" name="type" class="form-control form-control-sm"
-                     value="{{ e.type if e.type else '' }}"
-                     placeholder="e.g. Water Bill">
-            </td>
-            <td>
-              <input type="text" name="reason" class="form-control form-control-sm"
-                     value="{{ e.reason if e.reason else '' }}"
-                     placeholder="Reason / Notes">
-            </td>
-            <td>
-              <small class="text-muted">{{ e.created_by }}</small>
-            </td>
-            <td>
-              <button type="submit" class="btn btn-sm btn-success mr-1">Save</button>
-              <button type="button" class="btn btn-sm btn-secondary"
-                      onclick="cancelEdit({{ e.id }})">Cancel</button>
-            </td>
-          </form>
-        </tr>
+          {# Edit row (hidden) #}
+          <tr id="edit-row-{{ e.id }}" style="display:none; background:#fffbe6;">
+            <form method="post" action="{{ url_for('edit_expenditure', exp_id=e.id) }}">
+              <td>
+                <select name="month" class="form-control form-control-sm" required>
+                  {% for value, label in months %}
+                    <option value="{{ value }}" {% if e.month == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td><input type="date" name="date" class="form-control form-control-sm" value="{{ e.date if e.date else '' }}"></td>
+              <td><input type="number" name="amount" min="0" step="1" class="form-control form-control-sm" value="{{ e.amount if e.amount is not none else '' }}" required></td>
+              <td><input type="text" name="type" class="form-control form-control-sm" value="{{ e.type if e.type else '' }}" placeholder="e.g. Water Bill"></td>
+              <td><input type="text" name="reason" class="form-control form-control-sm" value="{{ e.reason if e.reason else '' }}" placeholder="Reason / Notes"></td>
+              <td><small class="text-muted">{{ e.created_by }}</small></td>
+              <td>
+                <button type="submit" class="btn btn-sm btn-success mr-1">Save</button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="cancelEdit({{ e.id }})">Cancel</button>
+              </td>
+            </form>
+          </tr>
 
-        {% else %}
-        <tr>
-          <td colspan="7" class="text-center text-muted">No expenditures found.</td>
-        </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No expenditures found for this filter.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if expenditures %}
+        <tfoot>
+          <tr class="table-light">
+            <th colspan="2" class="text-right">This page subtotal</th>
+            <th class="amt-cell">₹{{ "{:,}".format(page_subtotal) }}</th>
+            <th colspan="4"></th>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination-bar d-flex flex-wrap justify-content-center align-items-center mt-3" style="gap:.35rem;">
+      <a class="btn btn-sm btn-outline-secondary {% if page <= 1 %}disabled{% endif %}"
+         href="{{ url_for('expenditure', month=selected_month, year=selected_year, per_page=per_page, page=page-1) }}">‹ Prev</a>
+
+      {% if total_pages <= 9 %}
+        {% for p in range(1, total_pages + 1) %}
+          <a class="btn btn-sm {% if p == page %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+             href="{{ url_for('expenditure', month=selected_month, year=selected_year, per_page=per_page, page=p) }}">{{ p }}</a>
         {% endfor %}
-      </tbody>
-    </table>
+      {% else %}
+        <span class="px-2">Page {{ page }} of {{ total_pages }}</span>
+      {% endif %}
+
+      <a class="btn btn-sm btn-outline-secondary {% if page >= total_pages %}disabled{% endif %}"
+         href="{{ url_for('expenditure', month=selected_month, year=selected_year, per_page=per_page, page=page+1) }}">Next ›</a>
+    </div>
+    {% endif %}
+
+    <!-- Filtered total (the sum of the whole selection, shown below) -->
+    <div class="filtered-total">
+      <div>
+        <div class="text-muted" style="font-size:.9rem;">Total of selected ({{ filter_desc }})</div>
+        <div class="ft-amt">₹{{ "{:,}".format(total_amount) }}</div>
+      </div>
+      <div class="text-right text-muted" style="font-size:.95rem;">
+        {{ record_count }} record{{ '' if record_count == 1 else 's' }}
+        {% if total_pages > 1 %}· page {{ page }} of {{ total_pages }}{% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
+</div><!-- /.exp-page -->
+
 <script>
-// Toggle inline edit row
 function startEdit(id) {
   document.getElementById('view-row-' + id).style.display = 'none';
   document.getElementById('edit-row-' + id).style.display = 'table-row';
@@ -225,18 +375,6 @@ function cancelEdit(id) {
   document.getElementById('edit-row-' + id).style.display = 'none';
   document.getElementById('view-row-' + id).style.display = 'table-row';
 }
-
-// Download CSV link reflects selected month
-document.addEventListener('DOMContentLoaded', function() {
-  var monthSelect = document.querySelector('form.form-inline select[name="month"]');
-  var downloadBtn = document.getElementById('downloadCsvBtn');
-  if (monthSelect && downloadBtn) {
-    monthSelect.addEventListener('change', function() {
-      var base = "{{ url_for('export_expenditures') }}";
-      downloadBtn.href = this.value ? base + '?month=' + encodeURIComponent(this.value) : base;
-    });
-  }
-});
 </script>
 
 {% endblock %}

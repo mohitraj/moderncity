@@ -1,0 +1,147 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<style>
+  .home-hero {
+    background: linear-gradient(135deg, #0056b3 0%, #007bff 100%);
+    color: #fff;
+    border-radius: 12px;
+    padding: 1.5rem 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .home-hero h2 { margin: 0; font-weight: 700; }
+  .home-hero p { margin: .25rem 0 0; opacity: .9; }
+
+  .year-card {
+    border: 1px solid #d9e6f5;
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform .12s ease, box-shadow .12s ease;
+    height: 100%;
+    background: #fff;
+  }
+  .year-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,86,179,.12); }
+  .year-card .yc-head {
+    background: #eaf3ff;
+    padding: .75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #d9e6f5;
+  }
+  .year-card .yc-year { font-size: 1.6rem; font-weight: 700; color: #0056b3; }
+  .yc-body { padding: 1rem; }
+  .yc-line { display: flex; justify-content: space-between; padding: .2rem 0; font-size: .95rem; }
+  .yc-line .lbl { color: #6c757d; }
+  .yc-net {
+    margin-top: .5rem; padding-top: .5rem; border-top: 2px solid #eef2f6;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .yc-net .amt { font-size: 1.35rem; font-weight: 700; }
+  .net-pos { color: #1e7e34; }
+  .net-neg { color: #c82333; }
+  .ad-card img { width: 100%; height: 180px; object-fit: cover; background:#f1f5f9; }
+  .ad-card .card-title { margin-bottom: .25rem; }
+</style>
+
+<div class="home-hero">
+  <h2>Modern City</h2>
+  <p>Society maintenance &amp; expenditure dashboard</p>
+</div>
+
+<!-- Admin tools -->
+{% if session.username == 'admin' or session.role == 'admin' %}
+<div class="card mb-4 border-primary">
+  <div class="card-body d-flex flex-wrap align-items-center" style="gap:.5rem;">
+    <strong class="mr-2">Admin tools:</strong>
+    <a href="{{ url_for('manage_ads') }}" class="btn btn-sm btn-primary">+ Add / Manage Advertisements</a>
+    <a href="{{ url_for('manage_months') }}" class="btn btn-sm btn-outline-primary">Manage Months / Years</a>
+    <a href="{{ url_for('admin_panel') }}" class="btn btn-sm btn-outline-secondary">Admin Panel</a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Year cards -->
+<h4 class="mb-3">Yearly Summary</h4>
+<div class="row">
+  {% for card in year_cards %}
+  <div class="col-12 col-sm-6 col-lg-4 mb-3">
+    <div class="year-card">
+      <div class="yc-head">
+        <span class="yc-year">{{ card.year }}</span>
+        <small class="text-muted">{{ card.months_count }} month{{ '' if card.months_count == 1 else 's' }}</small>
+      </div>
+      <div class="yc-body">
+        <div class="yc-line"><span class="lbl">Maintenance collected</span><span>₹{{ "{:,}".format(card.maintenance) }}</span></div>
+        <div class="yc-line"><span class="lbl">Additions</span><span>₹{{ "{:,}".format(card.additions) }}</span></div>
+        <div class="yc-line"><span class="lbl">Expenditure</span><span>₹{{ "{:,}".format(card.expenditure) }}</span></div>
+        <div class="yc-net">
+          <span class="lbl">Net balance</span>
+          <span class="amt {{ 'net-pos' if card.net >= 0 else 'net-neg' }}">₹{{ "{:,}".format(card.net) }}</span>
+        </div>
+        <small class="text-muted d-block mt-1">Net = Maintenance + Additions − Expenditure</small>
+        <div class="mt-3 d-flex" style="gap:.5rem;">
+          <a href="{{ url_for('year_view', year=card.year) }}" class="btn btn-sm btn-primary flex-fill">View months →</a>
+          <a href="{{ url_for('export_year', year=card.year) }}" class="btn btn-sm btn-outline-info">CSV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <div class="alert alert-info">
+      No periods configured yet.
+      {% if session.username == 'admin' or session.role == 'admin' %}
+        Use <a href="{{ url_for('manage_months') }}">Manage Months / Years</a> to add one.
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Pending payments alert -->
+<div class="card mb-4 border-warning">
+  <div class="card-header bg-warning"><h5 class="mb-0">Quick Alert</h5></div>
+  <div class="card-body d-flex flex-wrap justify-content-between align-items-center">
+    <span class="mb-2 mb-sm-0">Check houses with pending payments across all months.</span>
+    <a href="{{ url_for('defaulters') }}" class="btn btn-warning btn-sm">View Pending Payment Report</a>
+  </div>
+</div>
+
+<!-- Advertisements -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Community Board</h4>
+  {% if session.username == 'admin' or session.role == 'admin' %}
+    <a href="{{ url_for('manage_ads') }}" class="btn btn-sm btn-outline-primary">+ Add advertisement</a>
+  {% endif %}
+</div>
+
+<div class="row">
+  {% for ad in ads %}
+  <div class="col-12 col-sm-6 col-lg-4 mb-3">
+    <div class="card ad-card h-100">
+      {% if ad.image_path %}
+        <img src="{{ url_for('static', filename=ad.image_path) }}" alt="{{ ad.title }}">
+      {% endif %}
+      <div class="card-body">
+        <h5 class="card-title">{{ ad.title }}</h5>
+        {% if ad.description %}<p class="card-text small">{{ ad.description }}</p>{% endif %}
+        {% if ad.contact %}<p class="card-text small mb-1"><strong>Contact:</strong> {{ ad.contact }}</p>{% endif %}
+        <small class="text-muted">Posted by {{ ad.created_by }}</small>
+        {% if session.username == 'admin' or session.role == 'admin' %}
+        <form method="post" action="{{ url_for('delete_ad', ad_id=ad.id) }}" class="mt-2"
+              onsubmit="return confirm('Remove this advertisement?');">
+          <button class="btn btn-sm btn-outline-danger">Remove</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <div class="alert alert-light border">Nothing on the community board yet.</div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
