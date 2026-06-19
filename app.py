@@ -1050,13 +1050,15 @@ def edit_expenditure(exp_id):
 
 @app.route("/photo")
 def photo_page():
-    # Single society photo + address (unchanged)
+    # Single society photo + address + map (unchanged otherwise)
     image_url = url_for('static', filename='picture/sample.jpg')
     return render_template(
         "show_photo.html",
         image_url=image_url,
         caption="Modern City Layout",
-        alt="Modern City Layout"
+        alt="Modern City Layout",
+        map_lat=30.748042015473363,
+        map_lng=76.62296806457466
     )
 
 
