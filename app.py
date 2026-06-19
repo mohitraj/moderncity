@@ -86,6 +86,7 @@ def close_connection(exception):
 # ---------------------------
 # Folder where uploaded advertisement images are saved (under /static).
 ADS_SUBDIR = 'ads'
+GALLERY_SUBDIR = 'gallery'
 ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 def _raw_conn():
@@ -111,6 +112,18 @@ def ensure_schema():
             title TEXT NOT NULL,
             description TEXT,
             contact TEXT,
+            image_path TEXT,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS gallery (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            event_date TEXT,
+            status TEXT DEFAULT 'completed',
             image_path TEXT,
             created_by TEXT,
             created_at TEXT DEFAULT (datetime('now'))
@@ -1037,7 +1050,7 @@ def edit_expenditure(exp_id):
 
 @app.route("/photo")
 def photo_page():
-    # Example: static/picture/sample.jpg
+    # Single society photo + address (unchanged)
     image_url = url_for('static', filename='picture/sample.jpg')
     return render_template(
         "show_photo.html",
@@ -1045,6 +1058,85 @@ def photo_page():
         caption="Modern City Layout",
         alt="Modern City Layout"
     )
+
+
+@app.route("/gallery")
+def gallery_page():
+    """Event gallery: upcoming and completed society events with photos."""
+    db = get_db()
+    status_filter = request.args.get('status') or 'all'
+    if status_filter not in ('all', 'upcoming', 'completed'):
+        status_filter = 'all'
+
+    upcoming = db.execute(
+        "SELECT * FROM gallery WHERE status='upcoming' "
+        "ORDER BY (event_date IS NULL), event_date ASC, id DESC").fetchall()
+    completed = db.execute(
+        "SELECT * FROM gallery WHERE status='completed' "
+        "ORDER BY (event_date IS NULL), event_date DESC, id DESC").fetchall()
+
+    return render_template("gallery.html",
+                           upcoming=upcoming,
+                           completed=completed,
+                           status_filter=status_filter)
+
+
+@app.route('/gallery/add', methods=['POST'])
+def gallery_add():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    title = (request.form.get('title') or '').strip()
+    description = (request.form.get('description') or '').strip()
+    event_date = request.form.get('event_date') or None
+    status = request.form.get('status') or 'completed'
+    if status not in ('upcoming', 'completed'):
+        status = 'completed'
+    if not title:
+        flash('Please give the event a title.')
+        return redirect(url_for('gallery_page'))
+
+    image_path = None
+    uploaded = request.files.get('image')
+    if uploaded and uploaded.filename:
+        if not allowed_image(uploaded.filename):
+            flash('Image must be a PNG, JPG, GIF or WEBP file.')
+            return redirect(url_for('gallery_page'))
+        gdir = os.path.join(app.static_folder, GALLERY_SUBDIR)
+        os.makedirs(gdir, exist_ok=True)
+        base = secure_filename(uploaded.filename) or 'photo.jpg'
+        fname = f"{int(datetime.now().timestamp())}_{base}"
+        uploaded.save(os.path.join(gdir, fname))
+        image_path = f'{GALLERY_SUBDIR}/{fname}'
+
+    db.execute(
+        'INSERT INTO gallery (title, description, event_date, status, image_path, created_by) '
+        'VALUES (?,?,?,?,?,?)',
+        (title, description, event_date, status, image_path, session.get('username') or 'admin'))
+    db.commit()
+    flash('Event photo added.')
+    return redirect(url_for('gallery_page', status=status))
+
+
+@app.route('/gallery/delete/<int:gid>', methods=['POST'])
+def gallery_delete(gid):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    row = db.execute('SELECT image_path FROM gallery WHERE id = ?', (gid,)).fetchone()
+    if row and row['image_path']:
+        try:
+            os.remove(os.path.join(app.static_folder, row['image_path']))
+        except Exception:
+            pass
+    db.execute('DELETE FROM gallery WHERE id = ?', (gid,))
+    db.commit()
+    flash('Event photo removed.')
+    return redirect(url_for('gallery_page'))
 
 # ------------------- START: APPENDED extra.db + backup email/send-backup code -------------------
 # New imports used by appended code
@@ -1671,22 +1763,78 @@ def addition():
         flash('Addition recorded')
         return redirect(url_for('addition'))
 
-    # GET -> support optional month filter via query param ?month=YYYY-MM
-    selected_month = request.args.get('month')  # e.g. '2025-08' or None for all
-    if selected_month:
-        cur = db.execute('SELECT * FROM additions WHERE month = ? ORDER BY date DESC, id DESC', (selected_month,))
-    else:
-        cur = db.execute('SELECT * FROM additions ORDER BY month DESC, date DESC, id DESC')
-    add_rows = cur.fetchall()
-    #for row in add_rows:
-    #    print(dict(row))
+    # GET -> filters: ?month=YYYY-MM and/or ?year=YYYY ; pagination: ?per_page & ?page
+    selected_month = request.args.get('month') or ''
+    selected_year = request.args.get('year') or ''
 
-    # month options for filter / form
+    where = ''
+    params = []
+    if selected_month:
+        where = 'WHERE month = ?'
+        params = [selected_month]
+    elif selected_year:
+        where = 'WHERE substr(month,1,4) = ?'
+        params = [selected_year]
+
+    full_rows = db.execute(
+        f'SELECT * FROM additions {where} ORDER BY month DESC, date DESC, id DESC',
+        params).fetchall()
+
+    total_amount = sum((r['amount'] or 0) for r in full_rows)
+    record_count = len(full_rows)
+    largest = max((r['amount'] or 0) for r in full_rows) if full_rows else 0
+    avg_amount = (total_amount // record_count) if record_count else 0
+
+    # Breakdown by source/name (the "type" field), top 6 + an "Other" bucket
+    name_totals = {}
+    for r in full_rows:
+        key = r['type'] if r['type'] else 'Unnamed'
+        name_totals[key] = name_totals.get(key, 0) + (r['amount'] or 0)
+    ordered = sorted(name_totals.items(), key=lambda kv: kv[1], reverse=True)
+    top_n = 6
+    category_breakdown = ordered[:top_n]
+    rest = ordered[top_n:]
+    rest_total = sum(v for _, v in rest)
+    rest_count = len(rest)
+
+    allowed_per_page = [10, 20, 30, 50, 100]
+    try:
+        per_page = int(request.args.get('per_page', 20))
+    except Exception:
+        per_page = 20
+    if per_page not in allowed_per_page:
+        per_page = 20
+    total_pages = max(1, (record_count + per_page - 1) // per_page)
+    try:
+        page = int(request.args.get('page', 1))
+    except Exception:
+        page = 1
+    page = min(max(1, page), total_pages)
+    start = (page - 1) * per_page
+    add_rows = full_rows[start:start + per_page]
+    page_subtotal = sum((r['amount'] or 0) for r in add_rows)
+
     month_options = [(db_key, label) for _, db_key, label in MONTHS]
+    year_options = distinct_years()
+
     return render_template('addition.html',
                            Additions=add_rows,
                            months=month_options,
-                           selected_month=selected_month)
+                           years=year_options,
+                           selected_month=selected_month,
+                           selected_year=selected_year,
+                           total_amount=total_amount,
+                           record_count=record_count,
+                           largest=largest,
+                           avg_amount=avg_amount,
+                           category_breakdown=category_breakdown,
+                           rest_total=rest_total,
+                           rest_count=rest_count,
+                           per_page=per_page,
+                           allowed_per_page=allowed_per_page,
+                           page=page,
+                           total_pages=total_pages,
+                           page_subtotal=page_subtotal)
 
 @app.route('/addition/export')
 def export_Additions():
@@ -1696,9 +1844,13 @@ def export_Additions():
     """
     db = get_db()
     month = request.args.get('month')
+    year = request.args.get('year')
     if month:
         cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM additions WHERE month = ? ORDER BY date DESC, id DESC', (month,))
         filename = f"additions_{month}.csv"
+    elif year:
+        cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM additions WHERE substr(month,1,4) = ? ORDER BY month DESC, date DESC, id DESC', (year,))
+        filename = f"additions_{year}.csv"
     else:
         cur = db.execute('SELECT month, date, amount, type, reason, created_by FROM additions ORDER BY month DESC, date DESC, id DESC')
         filename = "additions_all.csv"

@@ -1,26 +1,146 @@
 {% extends 'layout.html' %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">Additions</h4>
-  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+<style>
+  .add-page { font-size: 1rem; }
+  .add-hero {
+    background: linear-gradient(135deg, #157347 0%, #28a745 100%);
+    color: #fff; border-radius: 12px; padding: 1.25rem 1.25rem; margin-bottom: 1.25rem;
+  }
+  .add-hero h4 { margin: 0; font-weight: 700; font-size: 1.6rem; }
+  .add-hero small { opacity: .92; font-size: .95rem; }
+  .add-hero .btn-back { background: rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.35); }
+  .add-hero .btn-back:hover { background: rgba(255,255,255,.3); }
+
+  .stat-card { border:1px solid #eee; border-radius:12px; padding:1rem 1.1rem; height:100%; background:#fff; }
+  .stat-card .stat-label { color:#6c757d; font-size:.9rem; text-transform:uppercase; letter-spacing:.03em; }
+  .stat-card .stat-value { font-size:1.8rem; font-weight:700; line-height:1.2; }
+  .stat-total .stat-value { color:#157347; }
+  .stat-card.accent-l { border-left:4px solid #28a745; }
+  .stat-card small { font-size:.85rem; }
+
+  .cat-card { border:1px solid #eee; border-radius:12px; padding:.85rem 1rem; height:100%; background:#fff; }
+  .cat-card .cat-name { font-weight:600; font-size:1rem; }
+  .cat-card .cat-amt { font-weight:700; font-size:1.05rem; }
+  .cat-card small { font-size:.85rem; }
+  .cat-bar { height:7px; border-radius:4px; background:#f0f0f0; overflow:hidden; margin-top:.5rem; }
+  .cat-bar > span { display:block; height:100%; border-radius:4px; }
+
+  .records-card .table { font-size: 1rem; }
+  .records-card .table thead th { background:#f8f9fa; border-top:none; font-size:.85rem;
+     text-transform:uppercase; letter-spacing:.02em; color:#6c757d; }
+  .records-card .table td { vertical-align:middle; padding:.6rem .5rem; }
+  .records-card .badge { font-size:.9rem; font-weight:600; white-space:normal; text-align:left; }
+  .amt-cell { font-weight:700; white-space:nowrap; font-size:1.05rem; color:#157347; }
+
+  .filtered-total {
+    background:#f1faf4; border:1px solid #c3e6cb; border-radius:12px;
+    padding:.9rem 1.1rem; margin-top:1rem;
+    display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem;
+  }
+  .filtered-total .ft-amt { font-size:1.6rem; font-weight:700; color:#157347; }
+  .filter-bar label { font-size:.95rem; }
+  .filter-bar .form-control-sm { font-size:.95rem; }
+  .pagination-bar .btn { min-width:42px; }
+</style>
+
+<div class="add-page">
+
+{% set filter_desc = selected_month if selected_month else (selected_year if selected_year else 'all months') %}
+
+<!-- Hero header -->
+<div class="add-hero d-flex flex-wrap justify-content-between align-items-center">
+  <div>
+    <h4>Additions</h4>
+    <small>Showing {{ filter_desc }} · everyone can view, admin/Addition can add</small>
+  </div>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-back mt-2 mt-sm-0">← Back to Home</a>
 </div>
 
-<div class="card mb-3">
-  <div class="card-body d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">Addition Management</h5>
-    <small class="text-muted">
-      Everyone can view. Only <strong>Admin</strong> or <strong>Addition</strong> users can add.
-    </small>
+<!-- Summary stat cards (full filtered set) -->
+<div class="row mb-2">
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card stat-total accent-l">
+      <div class="stat-label">Total additions</div>
+      <div class="stat-value">₹{{ "{:,}".format(total_amount) }}</div>
+      <small class="text-muted">{{ filter_desc }}</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Records</div>
+      <div class="stat-value">{{ record_count }}</div>
+      <small class="text-muted">entries</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Largest entry</div>
+      <div class="stat-value">₹{{ "{:,}".format(largest) }}</div>
+      <small class="text-muted">single addition</small>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3 mb-3">
+    <div class="stat-card">
+      <div class="stat-label">Average / entry</div>
+      <div class="stat-value">₹{{ "{:,}".format(avg_amount) }}</div>
+      <small class="text-muted">mean amount</small>
+    </div>
   </div>
 </div>
 
-{# Filter row: GET form to select month and a download button #}
+<!-- Top sources -->
+{% if category_breakdown %}
+<h6 class="text-muted mb-2" style="font-size:1rem;">Top sources — {{ filter_desc }}</h6>
+<div class="row mb-3">
+  {% set palette = ['#28a745','#20c997','#0d6efd','#6f42c1','#fd7e14','#d63384'] %}
+  {% for name, amt in category_breakdown %}
+    {% set color = palette[loop.index0 % palette|length] %}
+    <div class="col-12 col-sm-6 col-lg-4 mb-3">
+      <div class="cat-card">
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span class="cat-name text-truncate" style="max-width:68%" title="{{ name }}">{{ name }}</span>
+          <span class="cat-amt" style="color:{{ color }}">₹{{ "{:,}".format(amt) }}</span>
+        </div>
+        <div class="cat-bar">
+          <span style="width: {{ ((amt / total_amount) * 100) if total_amount else 0 }}%; background: {{ color }};"></span>
+        </div>
+        <small class="text-muted">{{ ((amt / total_amount) * 100) | round(1) if total_amount else 0 }}% of total</small>
+      </div>
+    </div>
+  {% endfor %}
+  {% if rest_count > 0 %}
+    <div class="col-12 col-sm-6 col-lg-4 mb-3">
+      <div class="cat-card">
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span class="cat-name">Other ({{ rest_count }} source{{ '' if rest_count == 1 else 's' }})</span>
+          <span class="cat-amt" style="color:#6c757d">₹{{ "{:,}".format(rest_total) }}</span>
+        </div>
+        <div class="cat-bar">
+          <span style="width: {{ ((rest_total / total_amount) * 100) if total_amount else 0 }}%; background:#6c757d;"></span>
+        </div>
+        <small class="text-muted">{{ ((rest_total / total_amount) * 100) | round(1) if total_amount else 0 }}% of total</small>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Filters: year + month + per-page -->
 <div class="card mb-3">
-  <div class="card-body">
-    <form method="get" class="form-inline">
-      <label class="mr-2">Filter by month:</label>
-      <div class="form-group mr-2">
+  <div class="card-body py-3 filter-bar">
+    <form method="get" class="form-row align-items-end">
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Year</label>
+        <select name="year" class="form-control form-control-sm">
+          <option value="">All years</option>
+          {% for y in years %}
+            <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Month</label>
         <select name="month" class="form-control form-control-sm">
           <option value="">All months</option>
           {% for value, label in months %}
@@ -28,136 +148,152 @@
           {% endfor %}
         </select>
       </div>
-      <button class="btn btn-sm btn-outline-primary mr-2">Apply</button>
-
-      {# Download CSV button respects the currently selected month #}
-      <a id="downloadCsvBtn"
-         href="{{ url_for('export_Additions') }}{% if selected_month %}?month={{ selected_month }}{% endif %}"
-         class="btn btn-sm btn-secondary"
-         title="Download CSV of shown data">
-        Download CSV
-      </a>
+      <div class="form-group col-6 col-md-3 mb-2">
+        <label class="mb-1">Show per page</label>
+        <select name="per_page" class="form-control form-control-sm">
+          {% for n in allowed_per_page %}
+            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-6 col-md-3 mb-2 d-flex" style="gap:.4rem;">
+        <button class="btn btn-sm btn-outline-success flex-fill">Apply</button>
+        <a href="{{ url_for('export_Additions') }}{% if selected_month %}?month={{ selected_month }}{% elif selected_year %}?year={{ selected_year }}{% endif %}"
+           class="btn btn-sm btn-secondary">CSV</a>
+      </div>
     </form>
+    <small class="text-muted">Month takes priority over year when both are selected.</small>
   </div>
 </div>
 
-{# Add form - visible only to authorized users #}
+<!-- Add form -->
 {% if session.get('role') in ['admin','Addition','maintenance_Addition'] or session.get('username') == 'admin' %}
-
-<div class="card mb-3">
+<div class="card mb-3 border-success">
   <div class="card-body">
-    <form method="post" class="form-row" id="addExpenditureForm">
+    <h6 class="card-title mb-3" style="font-size:1.05rem;">Add an addition</h6>
+    <form method="post" class="form-row" id="addAdditionForm">
       <div class="form-group col-md-3">
-        <label class="sr-only">Month</label>
+        <label class="mb-1">Month</label>
         <select name="month" class="form-control form-control-sm" required>
           {% for value, label in months %}
             <option value="{{ value }}">{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-
       <div class="form-group col-md-2">
-        <!-- Date picker -->
-        <label class="sr-only">Date</label>
-        <input name="date" type="date" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
+        <label class="mb-1">Date</label>
+        <input name="date" type="date" class="form-control form-control-sm">
       </div>
-
       <div class="form-group col-md-2">
-        <label class="sr-only">Amount</label>
+        <label class="mb-1">Amount</label>
         <input name="amount" type="number" min="0" step="1" class="form-control form-control-sm" placeholder="Amount" required>
       </div>
-
       <div class="form-group col-md-3">
-        <label class="sr-only">Name</label>
+        <label class="mb-1">Name</label>
         <input name="type" class="form-control form-control-sm" placeholder="Name" required>
       </div>
-
-      <div class="form-group col-md-12 mt-2">
-        <input name="reason" class="form-control form-control-sm" placeholder="Bill number">
+      <div class="form-group col-md-2 d-flex align-items-end">
+        <button class="btn btn-sm btn-success btn-block">Add</button>
       </div>
-
-      <div class="form-group col-md-12 text-right mt-2">
-        <button class="btn btn-sm btn-primary">Add Addition</button>
+      <div class="form-group col-md-12 mt-1">
+        <input name="reason" class="form-control form-control-sm" placeholder="Bill number">
       </div>
     </form>
   </div>
 </div>
-
-<script>
-  // Form submission handling (simplified since no dropdown anymore)
-  document.addEventListener('DOMContentLoaded', function() {
-    // No special handling needed - form submits directly
-  });
-</script>
-
 {% else %}
 <div class="alert alert-info">
-  You can view Additions here. To add Additions, sign in with an account that has the 
+  You can view additions here. To add additions, sign in with an account that has the
   <strong>Addition</strong> or <strong>admin</strong> role.
 </div>
 {% endif %}
 
-{# Records table #}
-<div class="card">
+<!-- Records table -->
+<div class="card records-card">
   <div class="card-body">
-    <h5 class="card-title">AdditionRecords {% if selected_month %} — {{ selected_month }}{% endif %}</h5>
-    <table class="table table-sm table-striped table-bordered">
-      <thead>
-        <tr>
-          <th>Month</th>
-          <th>Date</th>
-          <th>Amount</th>
-          <th>Name</th>
-          <th>Bill Number</th>
-          <th>Created By</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in Additions %}
-        <tr>
-          <td>{{ e.month }}</td>
-          <td>{{ e.date }}</td>
-          <td>{{ e.amount }}</td>
-          <td>{{ e.type }}</td>
-          <td>{{ e.reason }}</td>
-          <td>{{ e.created_by }}</td>
-          <td>
-            {% if session.username == 'admin' or session.role == 'admin' %}
-              <a href="{{ url_for('delete_addition', add_id=e.id) }}" 
-                 class="btn btn-sm btn-outline-danger"
-                 onclick="return confirm('Delete this Addition?')">Delete</a>
-            {% else %}
-              <small class="text-muted">Admin only</small>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7" class="text-center text-muted">No Additions found.</td>
-        </tr>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+      <h6 class="card-title mb-0" style="font-size:1.05rem;">Records — {{ filter_desc }}</h6>
+      <small class="text-muted">
+        {% if record_count %}
+          Showing {{ (page-1)*per_page + 1 }}–{{ (page-1)*per_page + Additions|length }} of {{ record_count }}
+        {% else %}0 records{% endif %}
+      </small>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Month</th><th>Date</th><th>Amount</th><th>Name</th>
+            <th>Bill Number</th><th>Created By</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in Additions %}
+          <tr>
+            <td>{{ e.month }}</td>
+            <td>{{ e.date if e.date else '—' }}</td>
+            <td class="amt-cell">₹{{ "{:,}".format(e.amount or 0) }}</td>
+            <td><span class="badge badge-light border">{{ e.type }}</span></td>
+            <td>{{ e.reason }}</td>
+            <td><small class="text-muted">{{ e.created_by }}</small></td>
+            <td>
+              {% if session.username == 'admin' or session.role == 'admin' %}
+                <a href="{{ url_for('delete_addition', add_id=e.id) }}"
+                   class="btn btn-sm btn-outline-danger"
+                   onclick="return confirm('Delete this addition?')">Delete</a>
+              {% else %}
+                <small class="text-muted">Admin only</small>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No additions found for this filter.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if Additions %}
+        <tfoot>
+          <tr class="table-light">
+            <th colspan="2" class="text-right">This page subtotal</th>
+            <th class="amt-cell">₹{{ "{:,}".format(page_subtotal) }}</th>
+            <th colspan="4"></th>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination-bar d-flex flex-wrap justify-content-center align-items-center mt-3" style="gap:.35rem;">
+      <a class="btn btn-sm btn-outline-secondary {% if page <= 1 %}disabled{% endif %}"
+         href="{{ url_for('addition', month=selected_month, year=selected_year, per_page=per_page, page=page-1) }}">‹ Prev</a>
+      {% if total_pages <= 9 %}
+        {% for p in range(1, total_pages + 1) %}
+          <a class="btn btn-sm {% if p == page %}btn-success{% else %}btn-outline-secondary{% endif %}"
+             href="{{ url_for('addition', month=selected_month, year=selected_year, per_page=per_page, page=p) }}">{{ p }}</a>
         {% endfor %}
-      </tbody>
-    </table>
+      {% else %}
+        <span class="px-2">Page {{ page }} of {{ total_pages }}</span>
+      {% endif %}
+      <a class="btn btn-sm btn-outline-secondary {% if page >= total_pages %}disabled{% endif %}"
+         href="{{ url_for('addition', month=selected_month, year=selected_year, per_page=per_page, page=page+1) }}">Next ›</a>
+    </div>
+    {% endif %}
+
+    <!-- Filtered total -->
+    <div class="filtered-total">
+      <div>
+        <div class="text-muted" style="font-size:.9rem;">Total of selected ({{ filter_desc }})</div>
+        <div class="ft-amt">₹{{ "{:,}".format(total_amount) }}</div>
+      </div>
+      <div class="text-right text-muted" style="font-size:.95rem;">
+        {{ record_count }} record{{ '' if record_count == 1 else 's' }}
+        {% if total_pages > 1 %}· page {{ page }} of {{ total_pages }}{% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- small script to make Download CSV link reflect selected month immediately (optional UX improvement) -->
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  var monthSelect = document.querySelector('form.form-inline select[name="month"]');
-  var downloadBtn = document.getElementById('downloadCsvBtn');
-  if(monthSelect && downloadBtn){
-    monthSelect.addEventListener('change', function(){
-      var base = "{{ url_for('export_Additions') }}";
-      if(this.value){
-        downloadBtn.href = base + '?month=' + encodeURIComponent(this.value);
-      } else {
-        downloadBtn.href = base;
-      }
-    });
-  }
-});
-</script>
+</div><!-- /.add-page -->
 
 {% endblock %}
