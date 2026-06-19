@@ -1,0 +1,184 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<style>
+  .gal-page { font-size: 1rem; }
+  .gal-hero {
+    background: linear-gradient(135deg, #5b2a86 0%, #8e44ad 100%);
+    color:#fff; border-radius:14px; padding:1.4rem 1.25rem; margin-bottom:1.25rem;
+  }
+  .gal-hero h4 { margin:0; font-weight:700; font-size:1.7rem; }
+  .gal-hero p { margin:.25rem 0 0; opacity:.92; }
+
+  .gal-filter .btn { border-radius:20px; }
+
+  .event-card { border:1px solid #eee; border-radius:14px; overflow:hidden; background:#fff;
+     height:100%; transition:transform .12s ease, box-shadow .12s ease; display:flex; flex-direction:column; }
+  .event-card:hover { transform:translateY(-3px); box-shadow:0 10px 22px rgba(94,42,134,.15); }
+  .event-thumb { width:100%; height:210px; object-fit:cover; background:#f0e9f6; cursor:zoom-in; display:block; }
+  .event-thumb.placeholder { display:flex; align-items:center; justify-content:center; color:#b39ddb; font-size:2.4rem; font-weight:700; }
+  .event-body { padding:.9rem 1rem; flex:1; display:flex; flex-direction:column; }
+  .event-title { font-weight:700; font-size:1.1rem; margin-bottom:.2rem; }
+  .event-date { font-size:.85rem; color:#6c757d; }
+  .event-desc { font-size:.95rem; margin-top:.4rem; }
+  .badge-upcoming { background:#fff3cd; color:#856404; border:1px solid #ffeeba; }
+  .badge-completed { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+  .section-head { display:flex; align-items:center; gap:.5rem; margin:1.4rem 0 .8rem; }
+  .section-head h5 { margin:0; font-weight:700; }
+
+  .address-box { background:#f3eefa; border-radius:10px; padding:.85rem 1.1rem; margin-top:1.75rem;
+     color:#5b2a86; font-size:.95rem; text-align:center; border:1px solid #e3d6f2; }
+
+  /* lightbox */
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none;
+     align-items:center; justify-content:center; z-index:1080; padding:20px; }
+  #lightbox img { max-width:96vw; max-height:92vh; border-radius:8px; }
+  #lightbox .lb-close { position:absolute; top:14px; right:20px; color:#fff; font-size:2rem; cursor:pointer; line-height:1; }
+</style>
+
+{% set is_admin = (session.username == 'admin' or session.role == 'admin') %}
+
+<div class="gal-page">
+
+<!-- Hero -->
+<div class="gal-hero d-flex flex-wrap justify-content-between align-items-center">
+  <div>
+    <h4>Event Gallery</h4>
+    <p>Photos from Modern City celebrations and upcoming events</p>
+  </div>
+  <a href="{{ url_for('index') }}" class="btn btn-sm" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35);">← Back to Home</a>
+</div>
+
+<!-- Filter -->
+<div class="gal-filter d-flex flex-wrap mb-3" style="gap:.4rem;">
+  <a href="{{ url_for('gallery_page') }}" class="btn btn-sm {{ 'btn-primary' if status_filter=='all' else 'btn-outline-secondary' }}">All</a>
+  <a href="{{ url_for('gallery_page', status='upcoming') }}" class="btn btn-sm {{ 'btn-warning' if status_filter=='upcoming' else 'btn-outline-secondary' }}">Upcoming</a>
+  <a href="{{ url_for('gallery_page', status='completed') }}" class="btn btn-sm {{ 'btn-success' if status_filter=='completed' else 'btn-outline-secondary' }}">Completed</a>
+</div>
+
+<!-- Admin add form -->
+{% if is_admin %}
+<div class="card mb-4" style="border-color:#d6c2ea;">
+  <div class="card-body">
+    <h6 class="card-title mb-3" style="font-size:1.05rem;">Add an event photo</h6>
+    <form method="post" action="{{ url_for('gallery_add') }}" enctype="multipart/form-data" class="form-row">
+      <div class="form-group col-md-4">
+        <label class="mb-1">Event title <span class="text-danger">*</span></label>
+        <input name="title" class="form-control form-control-sm" placeholder="e.g. Diwali Celebration 2025" required>
+      </div>
+      <div class="form-group col-md-3">
+        <label class="mb-1">Event date</label>
+        <input name="event_date" type="date" class="form-control form-control-sm">
+      </div>
+      <div class="form-group col-md-2">
+        <label class="mb-1">Status</label>
+        <select name="status" class="form-control form-control-sm">
+          <option value="completed">Completed</option>
+          <option value="upcoming">Upcoming</option>
+        </select>
+      </div>
+      <div class="form-group col-md-3">
+        <label class="mb-1">Photo</label>
+        <input type="file" name="image" accept="image/*" class="form-control-file">
+      </div>
+      <div class="form-group col-md-12 mt-1">
+        <input name="description" class="form-control form-control-sm" placeholder="Short description (optional)">
+      </div>
+      <div class="form-group col-md-12 text-right mt-1 mb-0">
+        <button class="btn btn-sm" style="background:#8e44ad;color:#fff;">Add to gallery</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% macro event_grid(events) %}
+  <div class="row">
+    {% for e in events %}
+    <div class="col-12 col-sm-6 col-lg-4 mb-3">
+      <div class="event-card">
+        {% if e.image_path %}
+          <img class="event-thumb" src="{{ url_for('static', filename=e.image_path) }}"
+               alt="{{ e.title }}" onclick="openLightbox(this.src)">
+        {% else %}
+          <div class="event-thumb placeholder">{{ e.title[0]|upper if e.title else '?' }}</div>
+        {% endif %}
+        <div class="event-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <span class="event-title">{{ e.title }}</span>
+            <span class="badge {{ 'badge-upcoming' if e.status=='upcoming' else 'badge-completed' }}">
+              {{ 'Upcoming' if e.status=='upcoming' else 'Completed' }}
+            </span>
+          </div>
+          {% if e.event_date %}<div class="event-date">📅 {{ e.event_date }}</div>{% endif %}
+          {% if e.description %}<div class="event-desc">{{ e.description }}</div>{% endif %}
+          <div class="mt-auto pt-2">
+            <small class="text-muted">Added by {{ e.created_by }}</small>
+            {% if is_admin %}
+            <form method="post" action="{{ url_for('gallery_delete', gid=e.id) }}" class="mt-2"
+                  onsubmit="return confirm('Remove this photo?');">
+              <button class="btn btn-sm btn-outline-danger">Remove</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+<!-- Upcoming -->
+{% if status_filter in ['all','upcoming'] %}
+  <div class="section-head">
+    <h5>Upcoming Events</h5>
+    <span class="badge badge-upcoming">{{ upcoming|length }}</span>
+  </div>
+  {% if upcoming %}
+    {{ event_grid(upcoming) }}
+  {% else %}
+    <div class="alert alert-light border">No upcoming events posted yet.</div>
+  {% endif %}
+{% endif %}
+
+<!-- Completed -->
+{% if status_filter in ['all','completed'] %}
+  <div class="section-head">
+    <h5>Completed Events</h5>
+    <span class="badge badge-completed">{{ completed|length }}</span>
+  </div>
+  {% if completed %}
+    {{ event_grid(completed) }}
+  {% else %}
+    <div class="alert alert-light border">No completed events posted yet.
+      {% if is_admin %} Use the form above to add one.{% endif %}
+    </div>
+  {% endif %}
+{% endif %}
+
+<!-- Society address -->
+<div class="address-box">
+  📍 Modern City, Eden City Rd, Kharar, Near Darpan City, Punjab 140301
+</div>
+
+</div><!-- /.gal-page -->
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <span class="lb-close" onclick="closeLightbox()">&times;</span>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<script>
+  function openLightbox(src) {
+    document.getElementById('lightbox-img').src = src;
+    document.getElementById('lightbox').style.display = 'flex';
+  }
+  function closeLightbox() {
+    document.getElementById('lightbox').style.display = 'none';
+    document.getElementById('lightbox-img').src = '';
+  }
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeLightbox(); });
+</script>
+
+{% endblock %}
