@@ -1,0 +1,66 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Important Contacts</h4>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">← Back to Home</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Add a contact</h5>
+    <p class="text-muted small">These numbers appear on the home page for all residents. The category
+      is free text, so you can add anything (Gardener, Plumber, Electrician, Society Office, …).</p>
+    <form method="post" class="form-row align-items-end">
+      <div class="form-group col-md-3">
+        <label class="small mb-1">Category <span class="text-danger">*</span></label>
+        <input name="category" class="form-control form-control-sm" list="catSuggestions"
+               placeholder="e.g. Plumber" required>
+        <datalist id="catSuggestions">
+          {% for s in suggestions %}<option value="{{ s }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="form-group col-md-4">
+        <label class="small mb-1">Name (optional)</label>
+        <input name="name" class="form-control form-control-sm" placeholder="e.g. Ramesh Kumar">
+      </div>
+      <div class="form-group col-md-3">
+        <label class="small mb-1">Phone <span class="text-danger">*</span></label>
+        <input name="phone" type="tel" class="form-control form-control-sm" placeholder="e.g. 98765 43210" required>
+      </div>
+      <div class="form-group col-md-2">
+        <button class="btn btn-sm btn-primary btn-block">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Current contacts</h5>
+    <table class="table table-sm table-bordered">
+      <thead class="thead-light">
+        <tr><th>Category</th><th>Name</th><th>Phone</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        {% for c in contacts %}
+        <tr>
+          <td>{{ c.category }}</td>
+          <td>{{ c.name or '—' }}</td>
+          <td>{{ c.phone }}</td>
+          <td>
+            <form method="post" action="{{ url_for('delete_contact', contact_id=c.id) }}"
+                  onsubmit="return confirm('Remove this contact?');">
+              <button class="btn btn-sm btn-outline-danger">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted text-center">No contacts added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

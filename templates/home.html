@@ -55,6 +55,7 @@
   <div class="card-body d-flex flex-wrap align-items-center" style="gap:.5rem;">
     <strong class="mr-2">Admin tools:</strong>
     <a href="{{ url_for('manage_ads') }}" class="btn btn-sm btn-primary">+ Add / Manage Advertisements</a>
+    <a href="{{ url_for('manage_contacts') }}" class="btn btn-sm btn-primary">Manage Contacts</a>
     <a href="{{ url_for('manage_months') }}" class="btn btn-sm btn-outline-primary">Manage Months / Years</a>
     <a href="{{ url_for('admin_panel') }}" class="btn btn-sm btn-outline-secondary">Admin Panel</a>
   </div>
@@ -106,6 +107,45 @@
     <span class="mb-2 mb-sm-0">Check houses with pending payments across all months.</span>
     <a href="{{ url_for('defaulters') }}" class="btn btn-warning btn-sm">View Pending Payment Report</a>
   </div>
+</div>
+
+<!-- Important contacts -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Important Contacts</h4>
+  {% if session.username == 'admin' or session.role == 'admin' %}
+    <a href="{{ url_for('manage_contacts') }}" class="btn btn-sm btn-outline-primary">+ Add / manage</a>
+  {% endif %}
+</div>
+
+<div class="row mb-2">
+  {% for category, items in contacts|groupby('category') %}
+  <div class="col-12 col-sm-6 col-lg-4 mb-3">
+    <div class="card h-100" style="border-radius:12px;">
+      <div class="card-header py-2" style="background:#eaf3ff; font-weight:700; color:#0056b3;">
+        {{ category }}
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for c in items %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <span>{% if c.name %}{{ c.name }}{% else %}<span class="text-muted">—</span>{% endif %}</span>
+          <a href="tel:{{ c.phone | replace(' ', '') }}" class="font-weight-bold text-decoration-none">
+            📞 {{ c.phone }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <div class="alert alert-light border">
+      No contacts added yet.
+      {% if session.username == 'admin' or session.role == 'admin' %}
+        Use <a href="{{ url_for('manage_contacts') }}">Manage Contacts</a> to add Gardener, Plumber, etc.
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
 <!-- Advertisements -->

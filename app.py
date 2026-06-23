@@ -129,6 +129,16 @@ def ensure_schema():
             created_at TEXT DEFAULT (datetime('now'))
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            name TEXT,
+            phone TEXT NOT NULL,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    ''')
     # Seed months from the legacy hardcoded list, but only the first time.
     count = c.execute('SELECT COUNT(*) FROM months').fetchone()[0]
     if count == 0:
@@ -316,7 +326,16 @@ def index():
     except Exception:
         ads = []
 
-    return render_template('home.html', year_cards=year_cards, ads=ads)
+    # Important contacts (visible to everyone), grouped by category for display
+    try:
+        contacts = db.execute(
+            'SELECT id, category, name, phone, created_by FROM contacts '
+            'ORDER BY category COLLATE NOCASE, name COLLATE NOCASE, id'
+        ).fetchall()
+    except Exception:
+        contacts = []
+
+    return render_template('home.html', year_cards=year_cards, ads=ads, contacts=contacts)
 
 
 @app.route('/year/<year>')
@@ -2024,6 +2043,54 @@ def delete_ad(ad_id):
     db.commit()
     flash('Advertisement removed.')
     return redirect(url_for('manage_ads'))
+
+
+# ----------------------
+# Admin: important contacts (shown on the landing page)
+# ----------------------
+@app.route('/admin/contacts', methods=['GET', 'POST'])
+def manage_contacts():
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+
+    db = get_db()
+
+    if request.method == 'POST':
+        category = (request.form.get('category') or '').strip()
+        name = (request.form.get('name') or '').strip()
+        phone = (request.form.get('phone') or '').strip()
+        if not category or not phone:
+            flash('Category and phone number are required.')
+            return redirect(url_for('manage_contacts'))
+        db.execute(
+            'INSERT INTO contacts (category, name, phone, created_by) VALUES (?,?,?,?)',
+            (category, name, phone, session.get('username') or 'admin'))
+        db.commit()
+        flash('Contact added.')
+        return redirect(url_for('manage_contacts'))
+
+    contacts = db.execute(
+        'SELECT id, category, name, phone, created_by, created_at FROM contacts '
+        'ORDER BY category COLLATE NOCASE, name COLLATE NOCASE, id').fetchall()
+    # Suggestions for the category box (existing categories + a few common ones)
+    common = ['Gardener', 'Plumber', 'Electrician', 'Security Guard', 'Society Office',
+              'Water Tanker', 'Housekeeping', 'Emergency']
+    existing = sorted({c['category'] for c in contacts}, key=str.lower)
+    suggestions = sorted(set(common) | set(existing), key=str.lower)
+    return render_template('manage_contacts.html', contacts=contacts, suggestions=suggestions)
+
+
+@app.route('/admin/contacts/delete/<int:contact_id>', methods=['POST'])
+def delete_contact(contact_id):
+    if not only_admin_required():
+        flash('Admin access required')
+        return redirect(url_for('login'))
+    db = get_db()
+    db.execute('DELETE FROM contacts WHERE id = ?', (contact_id,))
+    db.commit()
+    flash('Contact removed.')
+    return redirect(url_for('manage_contacts'))
 
 
 # ----------------------
